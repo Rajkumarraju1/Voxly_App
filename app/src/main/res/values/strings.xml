@@ -1,0 +1,26 @@
+<resources>
+    <string name="app_name">Voxly</string>
+    <string name="website_url">https://voxly-web.vercel.app</string>
+    <string name="url_privacy">https://voxly-web.vercel.app/privacy</string>
+    <string name="url_terms">https://voxly-web.vercel.app/terms</string>
+    <string name="url_refunds">https://voxly-web.vercel.app/refunds</string>
+    <string name="url_support">https://voxly-web.vercel.app/contact</string>
+    <string name="url_about">https://voxly-web.vercel.app/about</string>
+    <string name="url_blog">https://voxly-web.vercel.app/blog</string>
+    <string name="default_notification_channel_id">fcm_default_channel</string>
+    <string name="fcm_message">New Call</string>
+    
+    <!-- Speaker Statuses -->
+    <string name="status_offline">Offline</string>
+    <string name="status_online">Online</string>
+    <string name="status_available">Available</string>
+    <string name="status_not_accepting">Not accepting new calls</string>
+    <string name="status_receiving_call">Receiving another call</string>
+    <string name="status_connecting">Connecting...</string>
+    <string name="status_in_call">Currently in another call</string>
+    
+    <!-- Preferences Screen -->
+    <string name="call_preferences_label">Call Preferences</string>
+    <string name="incoming_calls_label">Incoming Calls</string>
+    <string name="call_preferences_disclaimer">These settings affect only new incoming calls. Existing calls won\'t be interrupted.</string>
+</resources>

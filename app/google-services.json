@@ -1,0 +1,30 @@
+{
+  "project_info": {
+    "project_number": "157010694507",
+    "firebase_url": "https://voxly-2635f-default-rtdb.asia-southeast1.firebasedatabase.app",
+    "project_id": "voxly-2635f",
+    "storage_bucket": "voxly-2635f.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:157010694507:android:fddb9973ad60f23240fc2e",
+        "android_client_info": {
+          "package_name": "com.voxly.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBrN1RrtQM7cYJKaoOcDEzw3oCK-D23XH4"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

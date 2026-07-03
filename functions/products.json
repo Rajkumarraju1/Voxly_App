@@ -1,0 +1,11 @@
+{
+  "coins_80": { "coins": 80, "price": 59 },
+  "coins_300": { "coins": 300, "price": 149 },
+  "coins_450": { "coins": 450, "price": 251 },
+  "coins_1100": { "coins": 1100, "price": 550 },
+  "coins_1800": { "coins": 1800, "price": 1055 },
+  "coins_3500": { "coins": 3500, "price": 1599 },
+  "coins_5000": { "coins": 5000, "price": 599 },
+  "coins_9000": { "coins": 9000, "price": 2651 },
+  "coins_20000": { "coins": 20000, "price": 5000 }
+}
