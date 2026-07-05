@@ -29,7 +29,9 @@ class MainActivity : ComponentActivity() {
     lateinit var userRepository: com.voxly.app.data.repository.UserRepository
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        setTheme(com.voxly.app.R.style.Theme_Voxly)
         super.onCreate(savedInstanceState)
+        com.voxly.app.util.CoinConstants.loadConfig(com.google.firebase.firestore.FirebaseFirestore.getInstance())
         handleIntent(intent)
         setContent {
             VoxlyTheme {
@@ -54,6 +56,68 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: android.content.Intent) {
         super.onNewIntent(intent)
         handleIntent(intent)
+    }
+
+    override fun onStart() {
+        super.onStart()
+        val userId = userRepository.getCurrentUserId()
+        if (userId != null) {
+            lifecycleScope.launch {
+                try {
+                    android.util.Log.d("Presence", "Writing ONLINE")
+                    val db = com.google.firebase.firestore.FirebaseFirestore.getInstance()
+                    db.collection("users").document(userId).update(
+                        mapOf(
+                            "isOnline" to true,
+                            "online" to true,
+                            "presence" to "ONLINE",
+                            "busy" to false,
+                            "lastSeen" to System.currentTimeMillis()
+                        )
+                    ).addOnSuccessListener {
+                        android.util.Log.d("Presence", "Write success")
+                    }.addOnFailureListener { exception ->
+                        android.util.Log.e("Presence", "Write failed", exception)
+                    }
+                } catch (e: Exception) {
+                    android.util.Log.e("Presence", "Write exception", e)
+                }
+            }
+        }
+    }
+
+    override fun onStop() {
+        super.onStop()
+        val user = userRepository.currentUserFlow.value
+        // If the user is a speaker and has manually toggled themselves online,
+        // they run a background foreground service and must remain ONLINE when minimizing.
+        if (user != null && user.isSpeaker && user.isOnline) {
+            android.util.Log.d("Presence", "Speaker is online with background service, keeping ONLINE on Stop")
+            return
+        }
+
+        val userId = userRepository.getCurrentUserId()
+        if (userId != null) {
+            lifecycleScope.launch {
+                try {
+                    android.util.Log.d("Presence", "Writing OFFLINE")
+                    val db = com.google.firebase.firestore.FirebaseFirestore.getInstance()
+                    db.collection("users").document(userId).update(
+                        mapOf(
+                            "isOnline" to false,
+                            "online" to false,
+                            "presence" to "OFFLINE"
+                        )
+                    ).addOnSuccessListener {
+                        android.util.Log.d("Presence", "Write success")
+                    }.addOnFailureListener { exception ->
+                        android.util.Log.e("Presence", "Write failed", exception)
+                    }
+                } catch (e: Exception) {
+                    android.util.Log.e("Presence", "Write exception", e)
+                }
+            }
+        }
     }
 
     private fun handleIntent(intent: android.content.Intent) {

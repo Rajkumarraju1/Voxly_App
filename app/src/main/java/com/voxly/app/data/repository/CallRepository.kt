@@ -391,10 +391,11 @@ class CallRepositoryImpl @Inject constructor(
             val speakerSnapshot = transaction.get(speakerRef)
             
             // --- SECURITY / CONSISTENCY CHECK ---
-            // Calculate values server-side (Repo-side) to prevent client manipulation
-            val userPaid = coinsDeducted * com.voxly.app.util.CoinConstants.COIN_VALUE_INR
-            val speakerEarned = userPaid * com.voxly.app.util.CoinConstants.SPEAKER_SHARE
-            val platformEarned = userPaid * com.voxly.app.util.CoinConstants.PLATFORM_SHARE
+            // Calculate values server-side (Repo-side) using dynamic configuration
+            val config = com.voxly.app.util.CoinConstants.currentConfig
+            val speakerEarned = coinsDeducted * config.speakerRate
+            val platformEarned = coinsDeducted * config.platformRate
+            val grossRevenue = speakerEarned + platformEarned
             // ------------------------------------
 
             // 1. Deduct coins from Caller
@@ -417,14 +418,19 @@ class CallRepositoryImpl @Inject constructor(
                 transaction.update(callerRef, "activeCall", null)
             }
             
-            // 4. Update Call Document
+            // 4. Update Call Document with auditing parameters
             transaction.update(callRef, mapOf(
                 "status" to "ended",
                 "duration" to durationSeconds,
                 "coinsDeducted" to coinsDeducted,
-                "userPaid" to userPaid,
+                "grossRevenue" to grossRevenue,
                 "speakerEarned" to speakerEarned,
-                "platformEarned" to platformEarned
+                "platformEarned" to platformEarned,
+                "pricingVersion" to config.pricingVersion,
+                "audioCoinsPerMinute" to config.audioCoinsPerMinute,
+                "videoCoinsPerMinute" to config.videoCoinsPerMinute,
+                "speakerRate" to config.speakerRate,
+                "platformRate" to config.platformRate
             ))
 
             // 5. Create Transactions
@@ -455,7 +461,7 @@ class CallRepositoryImpl @Inject constructor(
                 val callerTx = com.voxly.app.data.model.Transaction(
                     id = callerTxRef.id,
                     userId = call.callerId,
-                    amount = -userPaid, // Negative amount for spending
+                    amount = -grossRevenue, // Negative amount for spending
                     coins = coinsDeducted,
                     description = "Call Service",
                     status = "success",

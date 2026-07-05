@@ -95,8 +95,7 @@ fun ActiveCallScreen(
     // Earnings State
     val earnings by remember(liveCoins) {
         derivedStateOf { 
-            val totalValueInr = liveCoins * com.voxly.app.util.CoinConstants.COIN_VALUE_INR
-            totalValueInr * com.voxly.app.util.CoinConstants.SPEAKER_SHARE
+            liveCoins * com.voxly.app.util.CoinConstants.currentConfig.speakerRate
         }
     }
 

@@ -193,8 +193,12 @@ exports.verifyPlayPurchase = functions.https.onCall(async (data, context) => {
             throw new functions.https.HttpsError('invalid-argument', 'Unknown productId.');
         }
 
+        if (product.active === false) {
+            throw new functions.https.HttpsError('failed-precondition', 'This product package is no longer active.');
+        }
+
         const coinsToAdd = product.coins;
-        const amountPaidInr = product.price;
+        const amountPaidInr = product.expectedPrice;
 
         // 4. Securely add coins in Firestore using a Transaction
         const db = admin.firestore();
@@ -224,7 +228,8 @@ exports.verifyPlayPurchase = functions.https.onCall(async (data, context) => {
                 description: `Play Store Purchase (${productId})`,
                 status: 'success',
                 timestamp: admin.firestore.FieldValue.serverTimestamp(),
-                provider: 'google_play'
+                provider: 'google_play',
+                pricingVersion: product.pricingVersion || 1
             });
         });
 

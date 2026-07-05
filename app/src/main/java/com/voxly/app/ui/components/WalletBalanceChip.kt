@@ -51,7 +51,7 @@ fun WalletBalanceChip(
             style = MaterialTheme.typography.bodyMedium
         )
         Text(
-            text = String.format(Locale.US, "%.1f", coins),
+            text = com.voxly.app.util.CoinFormatter.format(coins),
             color = Color.White,
             fontWeight = FontWeight.Bold,
             style = MaterialTheme.typography.bodyMedium

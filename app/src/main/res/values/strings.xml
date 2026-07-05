@@ -1,12 +1,12 @@
 <resources>
     <string name="app_name">Voxly</string>
-    <string name="website_url">https://voxly-web.vercel.app</string>
-    <string name="url_privacy">https://voxly-web.vercel.app/privacy</string>
-    <string name="url_terms">https://voxly-web.vercel.app/terms</string>
-    <string name="url_refunds">https://voxly-web.vercel.app/refunds</string>
-    <string name="url_support">https://voxly-web.vercel.app/contact</string>
-    <string name="url_about">https://voxly-web.vercel.app/about</string>
-    <string name="url_blog">https://voxly-web.vercel.app/blog</string>
+    <string name="website_url">https://voxly.vibeme.live</string>
+    <string name="url_privacy">https://voxly.vibeme.live/privacy</string>
+    <string name="url_terms">https://voxly.vibeme.live/terms</string>
+    <string name="url_refunds">https://voxly.vibeme.live/refunds</string>
+    <string name="url_support">https://voxly.vibeme.live/contact</string>
+    <string name="url_about">https://voxly.vibeme.live/about</string>
+    <string name="url_blog">https://voxly.vibeme.live/blog</string>
     <string name="default_notification_channel_id">fcm_default_channel</string>
     <string name="fcm_message">New Call</string>
     

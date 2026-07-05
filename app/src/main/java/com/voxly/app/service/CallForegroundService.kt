@@ -59,6 +59,11 @@ class CallForegroundService : Service() {
         return START_STICKY
     }
 
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        super.onTaskRemoved(rootIntent)
+        goOfflineAndStop()
+    }
+
     private fun goOfflineAndStop() {
         val uid = auth.currentUser?.uid
         if (uid != null) {
@@ -66,7 +71,13 @@ class CallForegroundService : Service() {
                 android.util.Log.d("ONLINE_TRACE", "WRITER=CallForegroundService.goOfflineAndStop online=false lastSeen=N/A")
             }
             firestore.collection("users").document(uid)
-                .update("online", false)
+                .update(
+                    mapOf(
+                        "online" to false,
+                        "isOnline" to false,
+                        "presence" to "OFFLINE"
+                    )
+                )
                 .addOnSuccessListener {
                     if (com.voxly.app.BuildConfig.DEBUG) {
                         android.util.Log.d("ONLINE_TRACE", "WRITER=CallForegroundService.goOfflineAndStop SUCCESS")
@@ -104,7 +115,13 @@ class CallForegroundService : Service() {
             android.util.Log.d("ONLINE_TRACE", "WRITER=CallForegroundService.updateLastSeen online=N/A lastSeen=$now")
         }
         firestore.collection("users").document(uid)
-            .update("lastSeen", now)
+            .update(
+                mapOf(
+                    "lastSeen" to now,
+                    "isOnline" to true,
+                    "online" to true
+                )
+            )
             .addOnSuccessListener {
                 if (com.voxly.app.BuildConfig.DEBUG) {
                     android.util.Log.d("ONLINE_TRACE", "WRITER=CallForegroundService.updateLastSeen SUCCESS")

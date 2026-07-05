@@ -806,6 +806,7 @@ class HomeViewModel @Inject constructor(
             viewModelScope.launch {
                 val updatedUser = user.copy(
                     isOnline = isOnline,
+                    presence = if (isOnline) "ONLINE" else "OFFLINE",
                     lastSeen = if (isOnline) System.currentTimeMillis() else user.lastSeen
                 )
                 try {

@@ -21,6 +21,7 @@ data class User(
     @get:PropertyName("speaker") @set:PropertyName("speaker") @field:PropertyName("speaker") var isSpeaker: Boolean = false,
     @get:PropertyName("online") @set:PropertyName("online") @field:PropertyName("online") var isOnline: Boolean = false,
     @get:PropertyName("busy") @set:PropertyName("busy") @field:PropertyName("busy") var isBusy: Boolean = false,
+    @get:PropertyName("presence") @set:PropertyName("presence") @field:PropertyName("presence") var presence: String = "OFFLINE",
     val downgradeRequest: Boolean = false, // Added field
     val blockedUsers: List<String> = emptyList(), // Added field
     val audioRate: Int = 10,
@@ -39,7 +40,11 @@ data class User(
     val fcmToken: String = "", // Added field for notification optimization
     val activeCall: ActiveCallReference? = null,
     val callPreferences: CallPreferences = CallPreferences()
-)
+) {
+    @get:PropertyName("isOnline")
+    val isOnlineField: Boolean
+        get() = isOnline
+}
 
 enum class SupportedCallType {
     AUDIO,

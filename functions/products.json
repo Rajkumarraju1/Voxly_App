@@ -1,11 +1,17 @@
 {
-  "coins_80": { "coins": 80, "price": 59 },
-  "coins_300": { "coins": 300, "price": 149 },
-  "coins_450": { "coins": 450, "price": 251 },
-  "coins_1100": { "coins": 1100, "price": 550 },
-  "coins_1800": { "coins": 1800, "price": 1055 },
-  "coins_3500": { "coins": 3500, "price": 1599 },
-  "coins_5000": { "coins": 5000, "price": 599 },
-  "coins_9000": { "coins": 9000, "price": 2651 },
-  "coins_20000": { "coins": 20000, "price": 5000 }
+  "coins_80": { "coins": 80, "expectedPrice": 59, "pricingVersion": 1, "active": false },
+  "coins_300": { "coins": 300, "expectedPrice": 149, "pricingVersion": 1, "active": false },
+  "coins_450": { "coins": 450, "expectedPrice": 251, "pricingVersion": 1, "active": false },
+  "coins_1100": { "coins": 1100, "expectedPrice": 550, "pricingVersion": 1, "active": false },
+  "coins_1800": { "coins": 1800, "expectedPrice": 1055, "pricingVersion": 1, "active": false },
+  "coins_3500": { "coins": 3500, "expectedPrice": 1599, "pricingVersion": 1, "active": false },
+  "coins_9000": { "coins": 9000, "expectedPrice": 2651, "pricingVersion": 1, "active": false },
+  "coins_20000": { "coins": 20000, "expectedPrice": 5000, "pricingVersion": 1, "active": false },
+
+  "coins_100": { "coins": 100, "expectedPrice": 99, "pricingVersion": 1, "active": true },
+  "coins_250": { "coins": 275, "expectedPrice": 199, "pricingVersion": 1, "active": true },
+  "coins_500": { "coins": 575, "expectedPrice": 399, "pricingVersion": 1, "active": true },
+  "coins_1000": { "coins": 1200, "expectedPrice": 799, "pricingVersion": 1, "active": true },
+  "coins_2500": { "coins": 3100, "expectedPrice": 1799, "pricingVersion": 1, "active": true },
+  "coins_5000": { "coins": 6500, "expectedPrice": 3499, "pricingVersion": 1, "active": true }
 }

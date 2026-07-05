@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Base application theme -->
+    <style name="Theme.Voxly" parent="@android:style/Theme.Material.NoActionBar">
+        <item name="android:windowBackground">#09090B</item>
+        <item name="android:statusBarColor">#09090B</item>
+        <item name="android:navigationBarColor">#09090B</item>
+    </style>
+
+    <!-- Custom Starting/Splash Theme to prevent the white screen flash -->
+    <style name="Theme.Voxly.Starting" parent="Theme.Voxly">
+        <!-- For Android 12+ starting window customization -->
+        <item name="android:windowSplashScreenBackground">#09090B</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@mipmap/ic_launcher</item>
+    </style>
+</resources>

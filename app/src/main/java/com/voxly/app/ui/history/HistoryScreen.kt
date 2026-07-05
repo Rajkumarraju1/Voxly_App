@@ -410,12 +410,12 @@ fun HistoryListContent(
                         ) {
                             Text("🪙", fontSize = 14.sp)
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = "${currentUser.coins}",
-                                color = Color.White,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 15.sp
-                            )
+                             Text(
+                                 text = com.voxly.app.util.CoinFormatter.format(currentUser.coins),
+                                 color = Color.White,
+                                 fontWeight = FontWeight.Bold,
+                                 fontSize = 15.sp
+                             )
                         }
                     }
                 }

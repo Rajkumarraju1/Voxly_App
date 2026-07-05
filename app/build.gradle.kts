@@ -121,7 +121,7 @@ dependencies {
     
     // Agora
     // Agora
-    implementation("io.agora.rtc:full-sdk:4.6.3")
+    implementation("io.agora.rtc:full-rtc-basic:4.6.3")
     
     // Razorpay
     implementation("com.razorpay:checkout:1.6.38")

@@ -1,10 +1,10 @@
 package com.voxly.app.util
 
-object CoinConstants {
-    // Value of 1 coin in INR
-    const val COIN_VALUE_INR = 0.75
+import com.google.android.gms.tasks.Tasks
+import com.google.firebase.firestore.FirebaseFirestore
+import com.voxly.app.data.model.BillingConfig
 
-    // Coins deducted per minute
+object CoinConstants {
     const val AUDIO_COINS_PER_MIN = 10
     const val VIDEO_COINS_PER_MIN = 30
 
@@ -15,32 +15,47 @@ object CoinConstants {
     // 30 coins/min = 1 coin every 2 seconds
     const val VIDEO_INTERVAL_SECONDS = 2
 
-    // Revenue Split
-    const val SPEAKER_SHARE = 0.30
-    const val PLATFORM_SHARE = 0.70
+    // Dynamic config holder with safe default fallbacks
+    @Volatile
+    var currentConfig = BillingConfig()
+        private set
 
-    // Play Billing Product Mappings
+    private var listenerRegistration: com.google.firebase.firestore.ListenerRegistration? = null
+
+    fun loadConfig(db: FirebaseFirestore) {
+        listenerRegistration?.remove()
+        listenerRegistration = db.collection("system").document("billingConfig")
+            .addSnapshotListener { snapshot, e ->
+                if (e != null) {
+                    android.util.Log.e("CoinConstants", "Error listening to billingConfig: ${e.message}")
+                    return@addSnapshotListener
+                }
+                if (snapshot != null && snapshot.exists()) {
+                    val audio = snapshot.getLong("audioCoinsPerMinute")?.toInt() ?: 10
+                    val video = snapshot.getLong("videoCoinsPerMinute")?.toInt() ?: 30
+                    val speaker = snapshot.getDouble("speakerRate") ?: 0.225
+                    val platform = snapshot.getDouble("platformRate") ?: 0.525
+                    val version = snapshot.getLong("pricingVersion")?.toInt() ?: 1
+                    
+                    currentConfig = BillingConfig(
+                        audioCoinsPerMinute = audio,
+                        videoCoinsPerMinute = video,
+                        speakerRate = speaker,
+                        platformRate = platform,
+                        pricingVersion = version
+                    )
+                    android.util.Log.d("CoinConstants", "Successfully synced billingConfig: $currentConfig")
+                }
+            }
+    }
+
+    // Play Billing Production Product Mappings
     val PRODUCT_ID_TO_COINS = mapOf(
-        "coins_80" to 80,
-        "coins_300" to 300,
-        "coins_450" to 450,
-        "coins_1100" to 1100,
-        "coins_1800" to 1800,
-        "coins_3500" to 3500,
-        "coins_5000" to 5000,
-        "coins_9000" to 9000,
-        "coins_20000" to 20000
-    )
-
-    val PRODUCT_ID_TO_PRICE_INR = mapOf(
-        "coins_80" to 59,
-        "coins_300" to 149,
-        "coins_450" to 251,
-        "coins_1100" to 550,
-        "coins_1800" to 1055,
-        "coins_3500" to 1599,
-        "coins_5000" to 599,
-        "coins_9000" to 2651,
-        "coins_20000" to 5000
+        "coins_100" to 100,
+        "coins_250" to 275,
+        "coins_500" to 575,
+        "coins_1000" to 1200,
+        "coins_2500" to 3100,
+        "coins_5000" to 6500
     )
 }

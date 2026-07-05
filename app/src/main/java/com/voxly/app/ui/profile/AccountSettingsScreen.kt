@@ -119,7 +119,7 @@ fun AccountSettingsScreen(
                     title = "Privacy Policy",
                     subtitle = "Learn how we protect your data",
                     iconTint = Color(0xFF9C47FF),
-                    onClick = { uriHandler.openUri("https://voxly-web.vercel.app/privacy") }
+                    onClick = { uriHandler.openUri("https://voxly.vibeme.live/privacy") }
                 )
                 HorizontalDivider(color = Color(0xFF2A2A35), modifier = Modifier.padding(horizontal = 16.dp))
                 SettingsItem(
@@ -127,7 +127,7 @@ fun AccountSettingsScreen(
                     title = "Terms of Service",
                     subtitle = "Rules and guidelines",
                     iconTint = Color(0xFF9C47FF),
-                    onClick = { uriHandler.openUri("https://voxly-web.vercel.app/terms") }
+                    onClick = { uriHandler.openUri("https://voxly.vibeme.live/terms") }
                 )
                 HorizontalDivider(color = Color(0xFF2A2A35), modifier = Modifier.padding(horizontal = 16.dp))
                 SettingsItem(
@@ -135,7 +135,7 @@ fun AccountSettingsScreen(
                     title = "Refund Policy",
                     subtitle = "Returns and refunds",
                     iconTint = Color(0xFF9C47FF),
-                    onClick = { uriHandler.openUri("https://voxly-web.vercel.app/refunds") }
+                    onClick = { uriHandler.openUri("https://voxly.vibeme.live/refunds") }
                 )
             }
 
@@ -146,7 +146,7 @@ fun AccountSettingsScreen(
                     title = "Help & Support",
                     subtitle = "Get help with your queries",
                     iconTint = Color(0xFFB060FF),
-                    onClick = { uriHandler.openUri("https://voxly-web.vercel.app/help") }
+                    onClick = { uriHandler.openUri("https://voxly.vibeme.live/help") }
                 )
                 HorizontalDivider(color = Color(0xFF2A2A35), modifier = Modifier.padding(horizontal = 16.dp))
                 SettingsItem(
@@ -154,7 +154,7 @@ fun AccountSettingsScreen(
                     title = "Engineering Blog",
                     subtitle = "Updates from our team",
                     iconTint = Color(0xFFB060FF),
-                    onClick = { uriHandler.openUri("https://voxly-web.vercel.app/blog") }
+                    onClick = { uriHandler.openUri("https://voxly.vibeme.live/blog") }
                 )
             }
 

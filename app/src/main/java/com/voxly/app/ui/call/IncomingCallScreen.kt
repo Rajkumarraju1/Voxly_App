@@ -41,9 +41,7 @@ fun IncomingCallScreen(
     val isVideo = rate >= com.voxly.app.util.CoinConstants.VIDEO_COINS_PER_MIN
     val callType = if (isVideo) "Incoming Video Call" else "Incoming Audio Call"
     
-    // Calculate Earnings Prediction
-    // Rate (coins/min) * Value (0.75) * Share (0.40)
-    val earningsPerMin = rate * com.voxly.app.util.CoinConstants.COIN_VALUE_INR * com.voxly.app.util.CoinConstants.SPEAKER_SHARE
+    val earningsPerMin = rate * com.voxly.app.util.CoinConstants.currentConfig.speakerRate
     val earningsStr = String.format(Locale.getDefault(), "You'll earn approx ₹%.2f/min", earningsPerMin)
 
     Scaffold(
