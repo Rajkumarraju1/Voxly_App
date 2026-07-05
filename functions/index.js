@@ -172,7 +172,7 @@ exports.verifyPlayPurchase = functions.https.onCall(async (data, context) => {
     try {
         // 2. Verify with Google Play
         const response = await androidPublisher.purchases.products.get({
-            packageName: 'com.voxly.app', // Your App ID
+            packageName: 'com.rkdevstudios.voxly', // Your App ID
             productId: productId,
             token: purchaseToken,
             auth: authClient
@@ -240,3 +240,161 @@ exports.verifyPlayPurchase = functions.https.onCall(async (data, context) => {
         throw new functions.https.HttpsError('internal', error.message || 'Verification failed.');
     }
 });
+
+exports.onDeletionRequest = functions.firestore
+    .document("accountDeletionRequests/{userId}")
+    .onCreate(async (snapshot, context) => {
+        const userId = context.params.userId;
+        const db = admin.firestore();
+        const requestRef = db.collection("accountDeletionRequests").doc(userId);
+
+        console.log(`Received account deletion request for user: ${userId}`);
+
+        // 1. Transactional Idempotency & Request Integrity Guard
+        let retryCount = 0;
+        try {
+            const shouldProcess = await db.runTransaction(async (transaction) => {
+                const requestDoc = await transaction.get(requestRef);
+                if (!requestDoc.exists) {
+                    console.log("Request document does not exist");
+                    return false;
+                }
+
+                const requestData = requestDoc.data();
+                
+                // Request Integrity Validation
+                if (requestData.userId !== userId) {
+                    console.log("Trigger document ID does not match stored userId");
+                    transaction.update(requestRef, {
+                        status: "failed",
+                        error: "Request Integrity Validation failed: document ID mismatch",
+                        failedAt: admin.firestore.FieldValue.serverTimestamp()
+                    });
+                    return false;
+                }
+
+                if (requestData.status !== "pending") {
+                    console.log(`Request is already in status: ${requestData.status}`);
+                    return false;
+                }
+
+                retryCount = requestData.retryCount || 0;
+
+                // Move status to processing
+                transaction.update(requestRef, { status: "processing" });
+                return true;
+            });
+
+            if (!shouldProcess) {
+                return null;
+            }
+        } catch (error) {
+            console.error("Error running transactional status guard:", error);
+            return null;
+        }
+
+        // 2. Idempotent Execution Pipeline
+        try {
+            // A. Storage cleanup (delete avatars/{userId})
+            try {
+                const bucket = admin.storage().bucket();
+                const file = bucket.file(`avatars/${userId}`);
+                const [exists] = await file.exists();
+                if (exists) {
+                    await file.delete();
+                    console.log(`Deleted Storage avatar for user: ${userId}`);
+                }
+            } catch (storageError) {
+                console.warn(`Non-blocking Storage cleanup warning for ${userId}:`, storageError.message);
+            }
+
+            // B. Anonymize matching documents in the calls collection
+            try {
+                const callsRef = db.collection("calls");
+                const callerCalls = await callsRef.where("callerId", "==", userId).get();
+                const speakerCalls = await callsRef.where("speakerId", "==", userId).get();
+
+                const batch = db.batch();
+                callerCalls.forEach(doc => {
+                    batch.update(doc.ref, { callerId: "deleted_user" });
+                });
+                speakerCalls.forEach(doc => {
+                    batch.update(doc.ref, { speakerId: "deleted_user" });
+                });
+                await batch.commit();
+                console.log(`Anonymized call documents for user: ${userId}`);
+            } catch (callsError) {
+                console.error("Calls anonymization error:", callsError.message);
+                throw callsError;
+            }
+
+            // C. Anonymize user references in the reports collection
+            try {
+                const reportsRef = db.collection("reports");
+                const reportsCreated = await reportsRef.where("reporterId", "==", userId).get();
+                const reportsAgainst = await reportsRef.where("reportedId", "==", userId).get();
+
+                const batch = db.batch();
+                reportsCreated.forEach(doc => {
+                    batch.update(doc.ref, { reporterId: "deleted_user" });
+                });
+                reportsAgainst.forEach(doc => {
+                    batch.update(doc.ref, { reportedId: "deleted_user" });
+                });
+                await batch.commit();
+                console.log(`Anonymized reports for user: ${userId}`);
+            } catch (reportsError) {
+                console.error("Reports anonymization error:", reportsError.message);
+                throw reportsError;
+            }
+
+            // D. Delete the Firestore profile document
+            try {
+                const userRef = db.collection("users").doc(userId);
+                const userDoc = await userRef.get();
+                if (userDoc.exists) {
+                    await userRef.delete();
+                    console.log(`Deleted Firestore user profile document for: ${userId}`);
+                }
+            } catch (profileError) {
+                console.error("Profile document deletion error:", profileError.message);
+                throw profileError;
+            }
+
+            // E. Delete the Firebase Auth user
+            try {
+                await admin.auth().deleteUser(userId);
+                console.log(`Deleted Auth user account for: ${userId}`);
+            } catch (authError) {
+                // If user is already deleted from Auth, we treat it as success
+                if (authError.code !== "auth/user-not-found") {
+                    console.error("Auth account deletion error:", authError.message);
+                    throw authError;
+                }
+            }
+
+            // 3. Mark completed and set 90 days TTL deleteAt timestamp
+            const retentionDays = 90;
+            const deleteAt = new Date();
+            deleteAt.setDate(deleteAt.getDate() + retentionDays);
+
+            await requestRef.update({
+                status: "completed",
+                processedAt: admin.firestore.FieldValue.serverTimestamp(),
+                deleteAt: admin.firestore.Timestamp.fromDate(deleteAt)
+            });
+
+            console.log(`Account deletion request successfully completed for user: ${userId}`);
+
+        } catch (pipelineError) {
+            console.error("Account deletion pipeline encountered error:", pipelineError);
+            await requestRef.update({
+                status: "failed",
+                error: pipelineError.message || "Unknown pipeline error",
+                failedAt: admin.firestore.FieldValue.serverTimestamp(),
+                retryCount: retryCount + 1
+            });
+        }
+
+        return null;
+    });

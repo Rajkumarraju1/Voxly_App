@@ -17,7 +17,7 @@ if (localPropertiesFile.exists()) {
 }
 
 android {
-    namespace = "com.voxly.app"
+    namespace = "com.rkdevstudios.voxly"
     compileSdk = 35
 
     buildFeatures {
@@ -35,11 +35,11 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.voxly.app"
+        applicationId = "com.rkdevstudios.voxly"
         minSdk = 24
         targetSdk = 35
-        versionCode = 2
-        versionName = "1.1"
+        versionCode = 1
+        versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {

@@ -13,7 +13,7 @@
 }
 
 # Hilt / Dagger
--keep class com.voxly.app.VoxlyApp { *; }
+-keep class com.rkdevstudios.voxly.VoxlyApp { *; }
 -keep class dagger.hilt.** { *; }
 -keep class javax.inject.** { *; }
 -keepclasseswithmembers class * {
@@ -43,7 +43,7 @@
 -dontwarn coil.**
 
 # Data Classes (JSON Parsing / Firestore)
--keepclassmembers class com.voxly.app.data.model.** { *; }
+-keepclassmembers class com.rkdevstudios.voxly.data.model.** { *; }
 
 # Navigation
 -keep class androidx.navigation.** { *; }

@@ -8,6 +8,25 @@
   "client": [
     {
       "client_info": {
+        "mobilesdk_app_id": "1:157010694507:android:15ae610d68b0a04f40fc2e",
+        "android_client_info": {
+          "package_name": "com.rkdevstudios.voxly"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBrN1RrtQM7cYJKaoOcDEzw3oCK-D23XH4"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
         "mobilesdk_app_id": "1:157010694507:android:fddb9973ad60f23240fc2e",
         "android_client_info": {
           "package_name": "com.voxly.app"
