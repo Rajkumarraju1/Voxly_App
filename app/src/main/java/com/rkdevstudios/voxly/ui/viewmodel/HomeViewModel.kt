@@ -102,6 +102,18 @@ class HomeViewModel @Inject constructor(
     private var activeCallListenerJob: kotlinx.coroutines.Job? = null
     private var callTimerJob: kotlinx.coroutines.Job? = null
     private var callTimeoutJob: kotlinx.coroutines.Job? = null
+    private var lastNavigatedCallId: String? = null
+
+    private fun emitNavigateToActiveCall(call: com.rkdevstudios.voxly.data.model.Call) {
+        if (lastNavigatedCallId == call.id) {
+            android.util.Log.d("HomeViewModel", "emitNavigateToActiveCall: Already navigated to call ${call.id}. Skipping duplicate.")
+            return
+        }
+        lastNavigatedCallId = call.id
+        viewModelScope.launch {
+            _navigateToActiveCall.emit(call)
+        }
+    }
     private var lastVisible: com.google.firebase.firestore.DocumentSnapshot? = null
 
     // Transaction Pagination State
@@ -222,7 +234,11 @@ class HomeViewModel @Inject constructor(
                             _callState.value = CallState.Idle
                         }
                         is com.rkdevstudios.voxly.data.routing.RoutingState.Finding -> {
-                            _callState.value = CallState.Finding(if (s.type == com.rkdevstudios.voxly.data.model.CallType.VIDEO) "video" else "audio")
+                            if (session.originalSpeakerId == null) {
+                                _callState.value = CallState.Finding(if (s.type == com.rkdevstudios.voxly.data.model.CallType.VIDEO) "video" else "audio")
+                            } else {
+                                _callState.value = CallState.Idle
+                            }
                         }
                         is com.rkdevstudios.voxly.data.routing.RoutingState.Ringing -> {
                             val candidate = session.remainingCandidates.find { it.id == session.currentSpeakerId }
@@ -237,7 +253,7 @@ class HomeViewModel @Inject constructor(
                         }
                         is com.rkdevstudios.voxly.data.routing.RoutingState.Connected -> {
                             _callState.value = CallState.Idle
-                            _navigateToActiveCall.emit(s.call)
+                            emitNavigateToActiveCall(s.call)
                         }
                         is com.rkdevstudios.voxly.data.routing.RoutingState.Failed -> {
                             _callState.value = CallState.Idle
@@ -270,17 +286,23 @@ class HomeViewModel @Inject constructor(
                                     }
                                 }
                                 "accepted", "active" -> {
-                                    _navigateToActiveCall.emit(call)
+                                    emitNavigateToActiveCall(call)
                                 }
                                 "ended", "cancelled", "timeout" -> {
                                     callRepository.updateCallStatus(call.id, call.status)
+                                    _callState.value = CallState.Idle
                                 }
                             }
                         } else {
                             userRepository.updateUser(user.copy(activeCall = null))
+                            _callState.value = CallState.Idle
                         }
                     } catch (e: Exception) {
                         e.printStackTrace()
+                    }
+                } else {
+                    if (_callState.value is CallState.Active || _callState.value is CallState.Outgoing || _callState.value is CallState.Incoming) {
+                        _callState.value = CallState.Idle
                     }
                 }
             }
@@ -415,8 +437,8 @@ class HomeViewModel @Inject constructor(
             val caller = currentUser.value ?: return
 
             // Balance Check
-            val requiredRate =
-                if (type == "video") com.rkdevstudios.voxly.util.CoinConstants.VIDEO_COINS_PER_MIN else com.rkdevstudios.voxly.util.CoinConstants.AUDIO_COINS_PER_MIN
+            val callType = if (type == "video") CallType.VIDEO else CallType.AUDIO
+            val requiredRate = com.rkdevstudios.voxly.util.CallPricing.getRequiredMinimum(callType)
             if (caller.coins < requiredRate) {
                 viewModelScope.launch {
                     _showWalletEvent.emit("Insufficient balance. Please recharge.")
@@ -467,7 +489,7 @@ class HomeViewModel @Inject constructor(
                             callTimeoutJob?.cancel()
 
                             // Navigate to ActiveCallActivity
-                            _navigateToActiveCall.emit(call)
+                            emitNavigateToActiveCall(call)
 
                             // IMPORTANT: Transition local state to Idle so we don't interfere.
                             // The ActiveCallActivity will exist independently.
@@ -624,20 +646,35 @@ class HomeViewModel @Inject constructor(
 
         suspend fun acceptCall() {
             val currentState = _callState.value
-            val user = currentUser.value
+            var user = currentUser.value
             ringtoneManager.stopRingtone()
 
-            if (currentState is CallState.Incoming && user != null) {
+            if (currentState is CallState.Incoming) {
+                if (user == null) {
+                    val uid = userRepository.getCurrentUserId()
+                    if (uid != null) {
+                        try {
+                            android.util.Log.d("HomeViewModel", "acceptCall: User flow is null. Loading user dynamically for UID=$uid")
+                            user = userRepository.getUser(uid)
+                        } catch (e: Exception) {
+                            android.util.Log.e("HomeViewModel", "acceptCall: Failed to load user dynamically", e)
+                        }
+                    }
+                }
+
+                val displayName = user?.displayName ?: "Speaker"
+                val speakerId = user?.id ?: userRepository.getCurrentUserId() ?: ""
+
                 // Optimistically set Active State FIRST (Synchronously) to prevent double-join from MainActivity intent
                 val activeState = CallState.Active(
                     callId = currentState.callId,
                     callerId = currentState.callerId,
                     callerName = currentState.callerName,
-                    speakerName = user.displayName, // I am Speaker
+                    speakerName = displayName, // I am Speaker
                     otherAvatar = currentState.callerAvatar,
                     rate = currentState.rate,
                     startTime = System.currentTimeMillis(),
-                    speakerId = user.id,
+                    speakerId = speakerId,
                     type = if (currentState.rate >= com.rkdevstudios.voxly.util.CoinConstants.VIDEO_COINS_PER_MIN) "video" else "audio" // Infer type
                 )
                 _callState.value = activeState
@@ -675,9 +712,19 @@ class HomeViewModel @Inject constructor(
         fun endCall() {
             val currentState = _callState.value
             ringtoneManager.stopRingtone()
+            stopRingbackTone()
 
             // Handle OUTGOING (Ringing) - Cancel the call
             if (currentState is CallState.Outgoing) {
+                viewModelScope.launch {
+                    try {
+                        android.util.Log.d("HomeViewModel", "endCall: Cancelling recovered/active outgoing call=${currentState.callId}")
+                        callRepository.updateCallStatus(currentState.callId, "cancelled")
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
+                    _callState.value = CallState.Idle
+                }
                 callRoutingManager.cancelRouting()
                 return
             }
@@ -931,7 +978,8 @@ class HomeViewModel @Inject constructor(
 
         fun initiateRandomCall(type: String) {
             val user = currentUser.value ?: return
-            val requiredRate = if (type == "video") com.rkdevstudios.voxly.util.CoinConstants.VIDEO_COINS_PER_MIN else com.rkdevstudios.voxly.util.CoinConstants.AUDIO_COINS_PER_MIN
+            val callType = if (type == "video") CallType.VIDEO else CallType.AUDIO
+            val requiredRate = com.rkdevstudios.voxly.util.CallPricing.getRequiredMinimum(callType)
             if (user.coins < requiredRate) {
                 viewModelScope.launch {
                     _showWalletEvent.emit("Insufficient balance. Please recharge.")
@@ -972,7 +1020,8 @@ class HomeViewModel @Inject constructor(
 
         fun initiateSmartRedial(speakerId: String, type: String) {
             val user = currentUser.value ?: return
-            val requiredRate = if (type == "video") com.rkdevstudios.voxly.util.CoinConstants.VIDEO_COINS_PER_MIN else com.rkdevstudios.voxly.util.CoinConstants.AUDIO_COINS_PER_MIN
+            val callType = if (type == "video") CallType.VIDEO else CallType.AUDIO
+            val requiredRate = com.rkdevstudios.voxly.util.CallPricing.getRequiredMinimum(callType)
             if (user.coins < requiredRate) {
                 viewModelScope.launch {
                     _showWalletEvent.emit("Insufficient balance. Please recharge.")

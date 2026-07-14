@@ -86,12 +86,11 @@ fun HomeScreen(
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            androidx.compose.foundation.Image(
-                                painter = androidx.compose.ui.res.painterResource(id = com.rkdevstudios.voxly.R.mipmap.ic_launcher),
+                            androidx.compose.material3.Icon(
+                                imageVector = androidx.compose.material.icons.Icons.Default.Call,
                                 contentDescription = "App Logo",
-                                modifier = Modifier
-                                    .size(30.dp)
-                                    .clip(RoundedCornerShape(6.dp))
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(30.dp)
                             )
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(

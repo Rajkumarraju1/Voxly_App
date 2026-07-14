@@ -57,4 +57,16 @@ abstract class RepositoryModule {
     abstract fun bindRoutingLogger(
         routingLoggerImpl: com.rkdevstudios.voxly.data.routing.RoutingLoggerImpl
     ): com.rkdevstudios.voxly.data.routing.RoutingLogger
+
+    @Binds
+    @Singleton
+    abstract fun bindCallSessionManager(
+        callSessionManagerImpl: com.rkdevstudios.voxly.data.session.CallSessionManagerImpl
+    ): com.rkdevstudios.voxly.data.session.CallSessionManager
+
+    @Binds
+    @Singleton
+    abstract fun bindBillingManager(
+        billingManagerImpl: com.rkdevstudios.voxly.data.session.BillingManagerImpl
+    ): com.rkdevstudios.voxly.data.session.BillingManager
 }

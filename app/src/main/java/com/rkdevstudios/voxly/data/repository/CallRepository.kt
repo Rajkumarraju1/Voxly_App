@@ -14,10 +14,35 @@ import kotlinx.coroutines.withContext
 import java.util.UUID
 import javax.inject.Inject
 
+enum class SnapshotSource {
+    CACHE,
+    SERVER
+}
+
+sealed class CallSnapshotResult {
+    data class Exists(val call: Call) : CallSnapshotResult()
+    
+    data class Missing(
+        val source: SnapshotSource,
+        val hasPendingWrites: Boolean
+    ) : CallSnapshotResult()
+    
+    data class Error(val throwable: Throwable) : CallSnapshotResult()
+}
+
+fun CallSnapshotResult.toCallOrNull(): Call? = when (this) {
+    is CallSnapshotResult.Exists -> this.call
+    else -> null
+}
+
 interface CallRepository {
     suspend fun createCall(call: Call): String
     fun listenForIncomingCalls(speakerId: String): Flow<Call?>
+    
+    @Deprecated("Use observeCall instead", ReplaceWith("observeCall(callId)"))
     fun listenToCall(callId: String): Flow<Call?>
+    
+    fun observeCall(callId: String): Flow<CallSnapshotResult>
     suspend fun updateCallStatus(callId: String, status: String)
     suspend fun updateCallDuration(callId: String, durationSeconds: Int)
     suspend fun getCallHistory(userId: String): List<Call>
@@ -35,7 +60,8 @@ class CallRepositoryImpl @Inject constructor(
 ) : CallRepository {
 
     override suspend fun createCall(call: Call): String = withContext(Dispatchers.IO) {
-        val callId = UUID.randomUUID().toString()
+        android.util.Log.d("CallRepository", "Received call.id = ${call.id}")
+        val callId = call.id
         val channelId = "channel_$callId"
         
         // Optimize: Add participants array for single-query logic
@@ -57,6 +83,7 @@ class CallRepositoryImpl @Inject constructor(
         val speakerRef = firestore.collection("users").document(call.speakerId)
         val callerRef = firestore.collection("users").document(call.callerId)
         val callRef = firestore.collection("calls").document(callId)
+        android.util.Log.d("CallRepository", "Firestore document ID = $callId")
 
         firestore.runTransaction { transaction ->
             val speakerSnapshot = transaction.get(speakerRef)
@@ -142,28 +169,46 @@ class CallRepositoryImpl @Inject constructor(
         awaitClose { listener.remove() }
     }
 
-    override fun listenToCall(callId: String): Flow<Call?> = kotlinx.coroutines.flow.callbackFlow {
-        android.util.Log.d("CallRepository", "listenToCall: Starting listener for $callId")
+    @Deprecated("Use observeCall instead", ReplaceWith("observeCall(callId)"))
+    override fun listenToCall(callId: String): Flow<Call?> {
+        val baseFlow = observeCall(callId)
+        return kotlinx.coroutines.flow.flow {
+            baseFlow.collect { result ->
+                emit(result.toCallOrNull())
+            }
+        }
+    }
+
+    override fun observeCall(callId: String): Flow<CallSnapshotResult> = kotlinx.coroutines.flow.callbackFlow {
+        android.util.Log.d("CallRepository", "observeCall: Starting listener for $callId")
         val listener = firestore.collection("calls").document(callId)
             .addSnapshotListener { snapshot, error ->
                 if (error != null) {
-                    android.util.Log.e("CallRepository", "listenToCall: Error", error)
-                    close(error)
+                    android.util.Log.e("CallRepository", "observeCall: Error", error)
+                    trySend(CallSnapshotResult.Error(error))
                     return@addSnapshotListener
                 }
 
+                val source = if (snapshot?.metadata?.isFromCache == true) SnapshotSource.CACHE else SnapshotSource.SERVER
+                val hasPendingWrites = snapshot?.metadata?.hasPendingWrites() ?: false
+
                 if (snapshot != null && snapshot.exists()) {
                     val call = snapshot.toObject(Call::class.java)
-                    android.util.Log.d("CallRepository", "listenToCall: Received update for $callId. Status=${call?.status}, VideoRequest=${call?.videoRequestStatus}")
-                    trySend(call)
+                    if (call != null) {
+                        android.util.Log.d("CallRepository", "observeCall: Received update for $callId. Status=${call.status}, source=$source")
+                        trySend(CallSnapshotResult.Exists(call))
+                    } else {
+                        android.util.Log.d("CallRepository", "observeCall: Document exists but object is null. source=$source")
+                        trySend(CallSnapshotResult.Missing(source, hasPendingWrites))
+                    }
                 } else {
-                    android.util.Log.d("CallRepository", "listenToCall: Document does not exist or null")
-                    trySend(null)
+                    android.util.Log.d("CallRepository", "observeCall: Document does not exist. source=$source")
+                    trySend(CallSnapshotResult.Missing(source, hasPendingWrites))
                 }
             }
-        awaitClose { 
-            android.util.Log.d("CallRepository", "listenToCall: Closing listener for $callId")
-            listener.remove() 
+        awaitClose {
+            android.util.Log.d("CallRepository", "observeCall: Closing listener for $callId")
+            listener.remove()
         }
     }
 
@@ -175,17 +220,18 @@ class CallRepositoryImpl @Inject constructor(
             val call = snapshot.toObject(Call::class.java)
             
             if (call != null) {
-                // Update status
+                val speakerRef = firestore.collection("users").document(call.speakerId)
+                val callerRef = firestore.collection("users").document(call.callerId)
+                
+                // Read ALL snapshots first to respect Firestore transaction constraints (reads before writes)
+                val speakerSnap = transaction.get(speakerRef)
+                val callerSnap = transaction.get(callerRef)
+
+                // Now execute all updates/writes
                 transaction.update(callRef, "status", status)
                 
                 // If call is ending/declined/cancelled/timeout, free the participants
                 if (status == "ended" || status == "declined" || status == "cancelled" || status == "timeout") {
-                    val speakerRef = firestore.collection("users").document(call.speakerId)
-                    val callerRef = firestore.collection("users").document(call.callerId)
-                    
-                    val speakerSnap = transaction.get(speakerRef)
-                    val callerSnap = transaction.get(callerRef)
-                    
                     val speakerCallId = (speakerSnap.get("activeCall") as? Map<*, *>)?.get("callId") as? String
                     if (speakerCallId == callId) {
                         transaction.update(speakerRef, "activeCall", null)
@@ -197,12 +243,6 @@ class CallRepositoryImpl @Inject constructor(
                         transaction.update(callerRef, "activeCall", null)
                     }
                 } else {
-                    val speakerRef = firestore.collection("users").document(call.speakerId)
-                    val callerRef = firestore.collection("users").document(call.callerId)
-                    
-                    val speakerSnap = transaction.get(speakerRef)
-                    val callerSnap = transaction.get(callerRef)
-                    
                     val speakerCallId = (speakerSnap.get("activeCall") as? Map<*, *>)?.get("callId") as? String
                     if (speakerCallId == callId) {
                         transaction.update(speakerRef, "activeCall.status", status)
@@ -384,6 +424,12 @@ class CallRepositoryImpl @Inject constructor(
             val callSnapshot = transaction.get(callRef)
             val call = callSnapshot.toObject(Call::class.java) ?: throw Exception("Call not found")
             
+            // Sole idempotency guard
+            if (call.settled) {
+                android.util.Log.d("BILLING_AUDIT", "endCallSession: Call already settled. Skipping transaction. callId=$callId")
+                return@runTransaction
+            }
+
             val callerRef = firestore.collection("users").document(call.callerId)
             val speakerRef = firestore.collection("users").document(call.speakerId)
             
@@ -401,6 +447,7 @@ class CallRepositoryImpl @Inject constructor(
             // 1. Deduct coins from Caller
             val currentCoins = callerSnapshot.getLong("coins")?.toInt() ?: 0
             val newCoins = (currentCoins - coinsDeducted).coerceAtLeast(0)
+            android.util.Log.d("BILLING_AUDIT", "endCallSession Transaction executing. callId=$callId | callerId=${call.callerId} | speakerId=${call.speakerId} | durationSeconds=$durationSeconds | coinsDeducted=$coinsDeducted | currentCoins=$currentCoins | newCoins=$newCoins")
             transaction.update(callerRef, "coins", newCoins)
             
             // 2. Add earnings to Speaker
@@ -418,7 +465,8 @@ class CallRepositoryImpl @Inject constructor(
                 transaction.update(callerRef, "activeCall", null)
             }
             
-            // 4. Update Call Document with auditing parameters
+            // 4. Update Call Document with auditing parameters and settled info
+            val rateForType = if (call.type.lowercase() == "video") config.videoCoinsPerMinute.toDouble() else config.audioCoinsPerMinute.toDouble()
             transaction.update(callRef, mapOf(
                 "status" to "ended",
                 "duration" to durationSeconds,
@@ -430,7 +478,17 @@ class CallRepositoryImpl @Inject constructor(
                 "audioCoinsPerMinute" to config.audioCoinsPerMinute,
                 "videoCoinsPerMinute" to config.videoCoinsPerMinute,
                 "speakerRate" to config.speakerRate,
-                "platformRate" to config.platformRate
+                "platformRate" to config.platformRate,
+                "settled" to true,
+                "settledAt" to com.google.firebase.firestore.FieldValue.serverTimestamp(),
+                "settledByUid" to call.callerId,
+                "settlementVersion" to 1,
+                "settledCallerCoinsSpent" to coinsDeducted,
+                "settledSpeakerPayout" to speakerEarned,
+                "settledDurationSeconds" to durationSeconds,
+                "settledCallType" to call.type,
+                "settledRatePerMinute" to rateForType,
+                "settledSpeakerRate" to config.speakerRate
             ))
 
             // 5. Create Transactions

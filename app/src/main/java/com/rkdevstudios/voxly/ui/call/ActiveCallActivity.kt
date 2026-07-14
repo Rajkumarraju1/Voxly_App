@@ -2,6 +2,7 @@ package com.rkdevstudios.voxly.ui.call
 
 import android.os.Bundle
 import android.util.Log
+import android.content.Intent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
@@ -45,6 +46,13 @@ class ActiveCallActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         Log.d("ActiveCallActivity", "onCreate: Starting ActiveCallActivity with CallViewModel")
+        val callId = intent.getStringExtra("CALL_ID") ?: ""
+        com.rkdevstudios.voxly.util.CallBgAudit.log(
+            component = "ActiveCallActivity",
+            event = "onCreate",
+            effect = "Activity created",
+            callId = callId
+        )
 
         // Check Permissions First
         val hasAudio = androidx.core.content.ContextCompat.checkSelfPermission(this, android.Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED
@@ -80,7 +88,7 @@ class ActiveCallActivity : ComponentActivity() {
                     color = MaterialTheme.colorScheme.background
                 ) {
                     val uiState by callViewModel.uiState.collectAsStateWithLifecycle()
-                    val liveCoins by callViewModel.liveCoins.collectAsStateWithLifecycle()
+                    val billingSnapshot by callViewModel.billingSnapshot.collectAsStateWithLifecycle()
                     val remainingSeconds by callViewModel.remainingSeconds.collectAsStateWithLifecycle()
                     val isRemoteUserSpeaking by callViewModel.isRemoteUserSpeaking.collectAsStateWithLifecycle()
                     
@@ -92,22 +100,6 @@ class ActiveCallActivity : ComponentActivity() {
                             }
                         }
                         is CallViewModel.CallUiState.Active -> {
-                            // User isSpeaker logic:
-                            // We need to know if current user is speaker to pass correct flag.
-                            // CallViewModel doesn't expose it directly in Active state, but it knows internally.
-                            // It exposes 'otherUserId'.
-                            // Let's assume for UI purposes, if 'otherUserId' is the caller, then I am speaker.
-                            // Actually, CallViewModel knows 'callId' and 'callerId'.
-                            // If createCall passed isSpeaker flag, that would be easier.
-                            // For now, let's rely on internal logic or just pass a derived flag?
-                            // ActiveCallScreen uses `isSpeaker` to show earnings vs cost.
-                            // We can infer: if `liveCoins` is positive (earnings), I am speaker? No, both track value.
-                            // Best way: ViewModel exposes `isSpeaker` or `user` flow.
-                            // Let's add `isSpeaker` to CallUiState.Active or as a separate flow.
-                            // For this iteration, I will assume false and fix it if UI is wrong, or read User from Repo if needed.
-                            // Wait, `ActiveCallScreen` needs `isSpeaker`.
-                            // I should add `isSpeaker` to `CallUiState.Active` in next step or use `remainingSeconds` logic (-1 for speaker).
-                            
                             val isSpeaker = state.isSpeaker
                             
                             ActiveCallScreen(
@@ -128,8 +120,9 @@ class ActiveCallActivity : ComponentActivity() {
                                 onSetupLocalVideo = { container -> callViewModel.getAgoraManagerInstance().setupLocalVideo(container) },
                                 onSetupRemoteVideo = { uid, container -> callViewModel.getAgoraManagerInstance().setupRemoteVideo(uid, container) },
                                 
-                                liveCoins = liveCoins,
+                                liveCoins = billingSnapshot.callerCoinsSpent.toDouble(),
                                 remainingSeconds = remainingSeconds,
+                                elapsedSeconds = billingSnapshot.elapsedSeconds,
                                 
                                 onToggleMute = { isMuted -> callViewModel.toggleMic(isMuted) }, // Note: check parameter meaning. toggleMic(mute) matches.
                                 onToggleSpeaker = { isSpeakerOn -> callViewModel.toggleSpeaker(isSpeakerOn) },
@@ -154,19 +147,45 @@ class ActiveCallActivity : ComponentActivity() {
     }
     
     // Lifecycle logs
+    override fun onStart() {
+        super.onStart()
+        val callId = intent.getStringExtra("CALL_ID") ?: ""
+        com.rkdevstudios.voxly.util.CallBgAudit.log("ActiveCallActivity", "onStart", "Activity started", callId)
+    }
+
     override fun onResume() {
         super.onResume()
-        Log.d("ActiveCallActivity", "onResume")
+        val callId = intent.getStringExtra("CALL_ID") ?: ""
+        com.rkdevstudios.voxly.util.CallBgAudit.log("ActiveCallActivity", "onResume", "Activity resumed", callId)
     }
     
     override fun onPause() {
         super.onPause()
-        Log.d("ActiveCallActivity", "onPause")
+        val callId = intent.getStringExtra("CALL_ID") ?: ""
+        com.rkdevstudios.voxly.util.CallBgAudit.log("ActiveCallActivity", "onPause", "Activity paused", callId)
+    }
+
+    override fun onStop() {
+        super.onStop()
+        val callId = intent.getStringExtra("CALL_ID") ?: ""
+        com.rkdevstudios.voxly.util.CallBgAudit.log("ActiveCallActivity", "onStop", "Activity stopped", callId)
     }
 
     override fun onDestroy() {
         super.onDestroy()
-        Log.d("ActiveCallActivity", "onDestroy")
-        // ViewModel onCleared handles channel leave
+        val callId = intent.getStringExtra("CALL_ID") ?: ""
+        com.rkdevstudios.voxly.util.CallBgAudit.log("ActiveCallActivity", "onDestroy", "Activity destroyed", callId)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        val oldCallId = getIntent()?.getStringExtra("CALL_ID")
+        val newCallId = intent.getStringExtra("CALL_ID")
+        android.util.Log.d("ActiveCallActivity", "onNewIntent: oldCallId=$oldCallId | newCallId=$newCallId")
+        if (newCallId != null && newCallId != oldCallId) {
+            setIntent(intent)
+            finish()
+            startActivity(intent)
+        }
     }
 }

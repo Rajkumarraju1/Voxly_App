@@ -4,6 +4,8 @@ import android.util.Log
 import com.rkdevstudios.voxly.data.model.*
 import com.rkdevstudios.voxly.data.repository.CallRepository
 import com.rkdevstudios.voxly.data.repository.UserRepository
+import com.rkdevstudios.voxly.data.repository.CallSnapshotResult
+import com.rkdevstudios.voxly.data.repository.SnapshotSource
 import com.rkdevstudios.voxly.util.CoinConstants
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
@@ -123,8 +125,10 @@ class CallRoutingManagerImpl @Inject constructor(
                 retryCount = attemptCount
             )
 
-            _routingEvents.emit(RoutingEvent.Searching(attemptCount, maxAttempts))
-            delay(1000L) // UI search buffer
+            if (targetSpeakerId == null) {
+                _routingEvents.emit(RoutingEvent.Searching(attemptCount, maxAttempts))
+                delay(1000L) // UI search buffer
+            }
 
             val attemptStart = System.currentTimeMillis()
             val attempt = RoutingAttempt(
@@ -140,6 +144,7 @@ class CallRoutingManagerImpl @Inject constructor(
             try {
                 // Pre-generate call document ID
                 callId = UUID.randomUUID().toString()
+                Log.d("CallRoutingManager", "Generated call.id = $callId")
                 val requiredRate = if (type == CallType.VIDEO) CoinConstants.VIDEO_COINS_PER_MIN else CoinConstants.AUDIO_COINS_PER_MIN
                 
                 val call = Call(
@@ -157,6 +162,7 @@ class CallRoutingManagerImpl @Inject constructor(
                     version = 1
                 )
                 
+                Log.d("CallRoutingManager", "Immediately before calling: callRepository.createCall(call) with ID $callId")
                 // Write call inside atomic transaction
                 callRepository.createCall(call)
                 _currentSession.value = _currentSession.value?.copy(
@@ -207,6 +213,7 @@ class CallRoutingManagerImpl @Inject constructor(
                     )
                     logger.logAttemptEnd(_currentSession.value!!, attemptEnd)
                     _routingEvents.emit(RoutingEvent.Timeout(candidate))
+                    this@coroutineScope.cancel()
                 }
             }
         }
@@ -215,7 +222,8 @@ class CallRoutingManagerImpl @Inject constructor(
             userRepository.getUserFlow(candidate.id).collect { speaker ->
                 if (speaker != null) {
                     val currentTime = System.currentTimeMillis()
-                    val isStale = speaker.lastSeen > 0L && (currentTime - speaker.lastSeen) > 120000L
+                    val diff = currentTime - speaker.lastSeen
+                    val isStale = speaker.lastSeen > 0L && diff > 120000L
                     val isOffline = !speaker.isOnline || isStale
                     val acceptedAnother = speaker.activeCall != null && 
                                           speaker.activeCall.callId.isNotEmpty() && 
@@ -225,7 +233,10 @@ class CallRoutingManagerImpl @Inject constructor(
                     val mappedType = requestedType.toSupportedCallType()
                     val disabledType = !speaker.callPreferences.getTypedSupportedCallTypes().contains(mappedType)
 
-                    if (isOffline || acceptedAnother || disabledType) {
+                    val abortTriggered = isOffline || acceptedAnother || disabledType
+                    Log.d("CALL_AUDIT", "presenceJob: speakerId=${speaker.id}, expectedCallId=$callId, activeCallId=${speaker.activeCall?.callId}, activeCallStatus=${speaker.activeCall?.status}, isOffline=$isOffline (isOnline=${speaker.isOnline}, isStale=$isStale), acceptedAnother=$acceptedAnother, disabledType=$disabledType, AbortTriggered=$abortTriggered")
+
+                    if (abortTriggered) {
                         if (isHandled.compareAndSet(false, true)) {
                             Log.d("CallRoutingManager", "Ringing abort: offline=$isOffline, another=$acceptedAnother, disabled=$disabledType")
                             timeoutJob.cancel()
@@ -244,47 +255,106 @@ class CallRoutingManagerImpl @Inject constructor(
             }
         }
 
+        val cacheTimeoutJob = launch {
+            delay(RoutingConstants.CACHE_SYNC_TIMEOUT_MS)
+            if (currentCoroutineContext().isActive) {
+                if (isHandled.compareAndSet(false, true)) {
+                    Log.e("CallRoutingManager", "Cache synchronization timeout for call $callId")
+                    timeoutJob.cancel()
+                    presenceJob.cancel()
+                    cleanupCallDocument(callId, "timeout")
+                    val attemptEnd = attempt.copy(endedAt = System.currentTimeMillis(), result = AttemptResult.TIMEOUT)
+                    val currentAttempts = _currentSession.value?.attempts ?: emptyList()
+                    _currentSession.value = _currentSession.value?.copy(
+                        attempts = currentAttempts + attemptEnd
+                    )
+                    logger.logAttemptEnd(_currentSession.value!!, attemptEnd)
+                    failSession(RoutingFailure.CacheSyncTimeout)
+                    this@coroutineScope.cancel()
+                }
+            }
+        }
+
         try {
-            callRepository.listenToCall(callId).collect { call ->
-                if (call == null || call.status == "declined" || call.status == "cancelled" || call.status == "timeout") {
-                    if (isHandled.compareAndSet(false, true)) {
-                        timeoutJob.cancel()
-                        presenceJob.cancel()
-                        val result = when (call?.status) {
-                            "declined" -> AttemptResult.DECLINED
-                            "timeout" -> AttemptResult.TIMEOUT
-                            else -> AttemptResult.CANCELLED
+            callRepository.observeCall(callId).collect { result ->
+                when (result) {
+                    is CallSnapshotResult.Exists -> {
+                        cacheTimeoutJob.cancel()
+                        val call = result.call
+                        if (call.status == "declined" || call.status == "cancelled" || call.status == "timeout") {
+                            if (isHandled.compareAndSet(false, true)) {
+                                timeoutJob.cancel()
+                                presenceJob.cancel()
+                                val resultType = when (call.status) {
+                                    "declined" -> AttemptResult.DECLINED
+                                    "timeout" -> AttemptResult.TIMEOUT
+                                    else -> AttemptResult.CANCELLED
+                                }
+                                val attemptEnd = attempt.copy(endedAt = System.currentTimeMillis(), result = resultType)
+                                val currentAttempts = _currentSession.value?.attempts ?: emptyList()
+                                _currentSession.value = _currentSession.value?.copy(
+                                    attempts = currentAttempts + attemptEnd
+                                )
+                                logger.logAttemptEnd(_currentSession.value!!, attemptEnd)
+                                this@coroutineScope.cancel()
+                            }
+                        } else if (call.status == "accepted") {
+                            if (isHandled.compareAndSet(false, true)) {
+                                timeoutJob.cancel()
+                                presenceJob.cancel()
+                                isConnected = true
+                                val attemptEnd = attempt.copy(endedAt = System.currentTimeMillis(), result = AttemptResult.ACCEPTED)
+                                val currentAttempts = _currentSession.value?.attempts ?: emptyList()
+                                val finalSession = _currentSession.value?.copy(
+                                    attempts = currentAttempts + attemptEnd,
+                                    endedAt = System.currentTimeMillis(),
+                                    totalRoutingTime = System.currentTimeMillis() - (_currentSession.value?.startedAt ?: 0L),
+                                    connectedSpeaker = candidate,
+                                    fallbackUsed = (_currentSession.value?.retryCount ?: 0) > 1,
+                                    state = RoutingState.Connected(call)
+                                )
+                                _currentSession.value = finalSession
+                                logger.logAttemptEnd(finalSession!!, attemptEnd)
+                                logger.logSessionEnd(finalSession)
+                                _routingEvents.emit(RoutingEvent.Connected(candidate))
+                                _routingEvents.emit(RoutingEvent.Completed)
+                                _currentSession.value = null
+                                this@coroutineScope.cancel()
+                            }
                         }
-                        val attemptEnd = attempt.copy(endedAt = System.currentTimeMillis(), result = result)
-                        val currentAttempts = _currentSession.value?.attempts ?: emptyList()
-                        _currentSession.value = _currentSession.value?.copy(
-                            attempts = currentAttempts + attemptEnd
-                        )
-                        logger.logAttemptEnd(_currentSession.value!!, attemptEnd)
-                        this@coroutineScope.cancel()
                     }
-                } else if (call.status == "accepted") {
-                    if (isHandled.compareAndSet(false, true)) {
-                        timeoutJob.cancel()
-                        presenceJob.cancel()
-                        isConnected = true
-                        val attemptEnd = attempt.copy(endedAt = System.currentTimeMillis(), result = AttemptResult.ACCEPTED)
-                        val currentAttempts = _currentSession.value?.attempts ?: emptyList()
-                        val finalSession = _currentSession.value?.copy(
-                            attempts = currentAttempts + attemptEnd,
-                            endedAt = System.currentTimeMillis(),
-                            totalRoutingTime = System.currentTimeMillis() - (_currentSession.value?.startedAt ?: 0L),
-                            connectedSpeaker = candidate,
-                            fallbackUsed = (_currentSession.value?.retryCount ?: 0) > 1,
-                            state = RoutingState.Connected(call)
-                        )
-                        _currentSession.value = finalSession
-                        logger.logAttemptEnd(finalSession!!, attemptEnd)
-                        logger.logSessionEnd(finalSession)
-                        _routingEvents.emit(RoutingEvent.Connected(candidate))
-                        _routingEvents.emit(RoutingEvent.Completed)
-                        _currentSession.value = null
-                        this@coroutineScope.cancel()
+                    is CallSnapshotResult.Missing -> {
+                        if (result.source == SnapshotSource.SERVER) {
+                            cacheTimeoutJob.cancel()
+                            if (isHandled.compareAndSet(false, true)) {
+                                timeoutJob.cancel()
+                                presenceJob.cancel()
+                                val attemptEnd = attempt.copy(endedAt = System.currentTimeMillis(), result = AttemptResult.CANCELLED)
+                                val currentAttempts = _currentSession.value?.attempts ?: emptyList()
+                                _currentSession.value = _currentSession.value?.copy(
+                                    attempts = currentAttempts + attemptEnd
+                                )
+                                logger.logAttemptEnd(_currentSession.value!!, attemptEnd)
+                                this@coroutineScope.cancel()
+                            }
+                        }
+                    }
+                    is CallSnapshotResult.Error -> {
+                        cacheTimeoutJob.cancel()
+                        val err = result.throwable
+                        if (err is com.google.firebase.firestore.FirebaseFirestoreException) {
+                            val code = err.code
+                            if (code == com.google.firebase.firestore.FirebaseFirestoreException.Code.PERMISSION_DENIED) {
+                                if (isHandled.compareAndSet(false, true)) {
+                                    timeoutJob.cancel()
+                                    presenceJob.cancel()
+                                    failSession(RoutingFailure.PermissionDenied)
+                                    this@coroutineScope.cancel()
+                                }
+                                return@collect
+                            }
+                        }
+                        Log.e("CallRoutingManager", "Non-terminal Firestore error in observeCall", err)
                     }
                 }
             }

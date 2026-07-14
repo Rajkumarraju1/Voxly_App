@@ -10,4 +10,5 @@ sealed class RoutingFailure {
     object NetworkError : RoutingFailure()
     object FirestoreError : RoutingFailure()
     object PermissionDenied : RoutingFailure()
+    object CacheSyncTimeout : RoutingFailure()
 }

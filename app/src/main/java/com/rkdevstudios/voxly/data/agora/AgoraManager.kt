@@ -35,46 +35,87 @@ class AgoraManager @Inject constructor(
 
     private val eventHandler = object : IRtcEngineEventHandler() {
         override fun onJoinChannelSuccess(channel: String?, uid: Int, elapsed: Int) {
-            android.util.Log.d("AgoraManager", "onJoinChannelSuccess: Connected to channel $channel with uid $uid")
+            com.rkdevstudios.voxly.util.CallBgAudit.log(
+                component = "AgoraManager",
+                event = "onJoinChannelSuccess",
+                effect = "Connected to channel $channel with uid $uid",
+                callId = currentChannelId
+            )
             _connectionState.value = "Connected"
         }
 
+        override fun onRejoinChannelSuccess(channel: String?, uid: Int, elapsed: Int) {
+            com.rkdevstudios.voxly.util.CallBgAudit.log(
+                component = "AgoraManager",
+                event = "onRejoinChannelSuccess",
+                effect = "Reconnected to channel $channel with uid $uid",
+                callId = currentChannelId
+            )
+        }
+
         override fun onUserJoined(uid: Int, elapsed: Int) {
-            android.util.Log.d("AgoraManager", "onUserJoined: Remote user $uid joined")
+            com.rkdevstudios.voxly.util.CallBgAudit.log(
+                component = "AgoraManager",
+                event = "onUserJoined",
+                effect = "Remote user $uid joined",
+                callId = currentChannelId
+            )
             _remoteUserJoined.value = uid
             _connectionState.value = "User Joined"
         }
 
         override fun onUserOffline(uid: Int, reason: Int) {
-            android.util.Log.d("AgoraManager", "onUserOffline: Remote user $uid offline, reason: $reason")
+            com.rkdevstudios.voxly.util.CallBgAudit.log(
+                component = "AgoraManager",
+                event = "onUserOffline",
+                effect = "Remote user $uid offline, reason=$reason",
+                callId = currentChannelId
+            )
             _remoteUserJoined.value = null
             _connectionState.value = "User Offline"
             _isRemoteUserSpeaking.value = false
         }
 
         override fun onLeaveChannel(stats: RtcStats?) {
-            android.util.Log.d("AgoraManager", "onLeaveChannel")
+            com.rkdevstudios.voxly.util.CallBgAudit.log(
+                component = "AgoraManager",
+                event = "onLeaveChannel",
+                effect = "Channel left successfully",
+                callId = currentChannelId
+            )
             _connectionState.value = "Disconnected"
             _remoteUserJoined.value = null
             _isRemoteUserSpeaking.value = false
         }
         
         override fun onError(err: Int) {
-            android.util.Log.e("AgoraManager", "onError: $err")
-             _connectionState.value = "Error: $err"
+            com.rkdevstudios.voxly.util.CallBgAudit.log(
+                component = "AgoraManager",
+                event = "onError",
+                effect = "Error code $err",
+                callId = currentChannelId
+            )
+            _connectionState.value = "Error: $err"
+        }
+
+        override fun onLocalAudioStateChanged(state: Int, error: Int) {
+            com.rkdevstudios.voxly.util.CallBgAudit.log(
+                component = "AgoraManager",
+                event = "onLocalAudioStateChanged",
+                effect = "state=$state | error=$error",
+                callId = currentChannelId
+            )
         }
 
         override fun onAudioVolumeIndication(speakers: Array<out AudioVolumeInfo>?, totalVolume: Int) {
             if (speakers != null) {
                 for (speaker in speakers) {
-                    // Check if it's a remote user (uid != 0) and volume is significant
                     if (speaker.uid != 0 && speaker.volume > 10) {
                         _isRemoteUserSpeaking.value = true
                         return
                     }
                 }
             }
-            // If no remote speaker found with volume > 10
             _isRemoteUserSpeaking.value = false
         }
     }
@@ -84,6 +125,7 @@ class AgoraManager @Inject constructor(
              android.util.Log.d("AgoraManager", "initialize: RtcEngine already initialized.")
              return
         }
+        com.rkdevstudios.voxly.util.CallBgAudit.log("AgoraManager", "initialize", "Creating RtcEngine instance")
         try {
             val config = io.agora.rtc2.RtcEngineConfig()
             config.mContext = context
@@ -94,26 +136,23 @@ class AgoraManager @Inject constructor(
             rtcEngine?.setClientRole(Constants.CLIENT_ROLE_BROADCASTER)
             
             // Enable Modules
-            android.util.Log.d("AgoraManager", "initialize: Calling enableAudio()")
+            com.rkdevstudios.voxly.util.CallBgAudit.log("AgoraManager", "initialize", "enableAudio()", currentChannelId)
             rtcEngine?.enableAudio()
-            android.util.Log.d("AgoraManager", "initialize: Calling enableVideo()")
+            com.rkdevstudios.voxly.util.CallBgAudit.log("AgoraManager", "initialize", "enableVideo()", currentChannelId)
             rtcEngine?.enableVideo() 
             
             // Explicitly Enable Local Streams (Critical Fix)
-            android.util.Log.d("AgoraManager", "initialize: Calling enableLocalAudio(true)")
+            com.rkdevstudios.voxly.util.CallBgAudit.log("AgoraManager", "initialize", "enableLocalAudio(true)", currentChannelId)
             rtcEngine?.enableLocalAudio(true)
-            android.util.Log.d("AgoraManager", "initialize: Calling enableLocalVideo(true)")
+            com.rkdevstudios.voxly.util.CallBgAudit.log("AgoraManager", "initialize", "enableLocalVideo(true)", currentChannelId)
             rtcEngine?.enableLocalVideo(true)
-            
-            // Log confirmation
-            android.util.Log.d("AgoraManager", "initialize: Audio and Video enabled, Client Role set to BROADCASTER")
             
             rtcEngine?.setAudioProfile(Constants.AUDIO_PROFILE_DEFAULT, Constants.AUDIO_SCENARIO_DEFAULT)
             rtcEngine?.setEnableSpeakerphone(true)
             
-            // Enable Volume Indication: interval=200ms, smooth=3, report_vad=true
             rtcEngine?.enableAudioVolumeIndication(200, 3, true)
         } catch (e: Exception) {
+            com.rkdevstudios.voxly.util.CallBgAudit.log("AgoraManager", "initialize_exception", "${e.message}", currentChannelId)
             e.printStackTrace()
         }
     }
@@ -139,7 +178,7 @@ class AgoraManager @Inject constructor(
              val tokenBuilder = com.rkdevstudios.voxly.data.agora.token.RtcTokenBuilder2()
              val timestamp = (System.currentTimeMillis() / 1000).toInt()
              val expirationTimeInSeconds = 86400 // 24 hours
-             val privilegeExpiredTs = timestamp + expirationTimeInSeconds
+              val privilegeExpiredTs = timestamp + expirationTimeInSeconds
              
              tokenBuilder.buildTokenWithUid(
                  appId,
@@ -155,23 +194,43 @@ class AgoraManager @Inject constructor(
              null
         }
 
+        com.rkdevstudios.voxly.util.CallBgAudit.log(
+            component = "AgoraManager",
+            event = "joinChannel",
+            effect = "Calling joinChannel(channelId=$channelId, uid=$uid)",
+            callId = channelId
+        )
         val res = rtcEngine?.joinChannel(token, channelId, null, uid)
-        android.util.Log.d("AgoraManager", "joinChannel: Result=$res, Token Used=${token?.take(10)}...")
-        android.util.Log.d("AgoraManager", "Join result: $res")
         if (res != 0) {
+            com.rkdevstudios.voxly.util.CallBgAudit.log(
+                component = "AgoraManager",
+                event = "joinChannel_failed",
+                effect = "Result code $res",
+                callId = channelId
+            )
             _connectionState.value = "Join Failed: $res"
-            // Reset state on failure (though likely already false)
             isJoined = false
             currentChannelId = null
         } else {
              isJoined = true
              currentChannelId = channelId
-             android.util.Log.d("AgoraManager", "joinChannel: Success. Calling startPreview()")
+             com.rkdevstudios.voxly.util.CallBgAudit.log(
+                 component = "AgoraManager",
+                 event = "joinChannel_success_launching_preview",
+                 effect = "Calling startPreview()",
+                 callId = channelId
+             )
              rtcEngine?.startPreview()
         }
     }
 
     fun leaveChannel() {
+        com.rkdevstudios.voxly.util.CallBgAudit.log(
+            component = "AgoraManager",
+            event = "leaveChannel",
+            effect = "Stopping preview and leaving channel",
+            callId = currentChannelId
+        )
         rtcEngine?.stopPreview()
         rtcEngine?.leaveChannel()
         isJoined = false
@@ -180,22 +239,35 @@ class AgoraManager @Inject constructor(
     }
     
     fun toggleMute(muted: Boolean) {
+        com.rkdevstudios.voxly.util.CallBgAudit.log(
+            component = "AgoraManager",
+            event = "toggleMute",
+            effect = "Calling muteLocalAudioStream($muted)",
+            callId = currentChannelId
+        )
         rtcEngine?.muteLocalAudioStream(muted)
     }
 
     fun toggleVideo(enabled: Boolean) {
-        android.util.Log.d("AgoraManager", "toggleVideo: Calling muteLocalVideoStream(${!enabled})")
+        com.rkdevstudios.voxly.util.CallBgAudit.log(
+            component = "AgoraManager",
+            event = "toggleVideo",
+            effect = "Calling muteLocalVideoStream(${!enabled}) | startPreviewIfEnabled=$enabled",
+            callId = currentChannelId
+        )
         rtcEngine?.muteLocalVideoStream(!enabled)
         if (enabled) {
-            android.util.Log.d("AgoraManager", "toggleVideo: Calling startPreview()")
             rtcEngine?.startPreview()
-        } else {
-            // Optional: stop preview if we want to save battery, but usually we keep it for quick resume
-            // rtcEngine?.stopPreview() 
         }
     }
 
     fun toggleSpeaker(speakerOn: Boolean) {
+        com.rkdevstudios.voxly.util.CallBgAudit.log(
+            component = "AgoraManager",
+            event = "toggleSpeaker",
+            effect = "Calling setEnableSpeakerphone($speakerOn)",
+            callId = currentChannelId
+        )
         rtcEngine?.setEnableSpeakerphone(speakerOn)
     }
 

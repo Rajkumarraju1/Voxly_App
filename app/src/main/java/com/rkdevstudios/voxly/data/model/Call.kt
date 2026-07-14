@@ -26,5 +26,18 @@ data class Call(
     val participants: List<String> = emptyList(), // [callerId, speakerId] for efficient querying
     val expireAt: Date? = null, // For TTL
     val speakerFcmToken: String? = null, // Optimization: Pass token to avoid extra read in Cloud Function
-    val version: Int = 1
+    val version: Int = 1,
+    val settled: Boolean = false,
+    val settledAt: Date? = null,
+    val settledByUid: String? = null,
+    val settlementVersion: Int = 1,
+    val settledCallerCoinsSpent: Int = 0,
+    val settledSpeakerPayout: Double = 0.0,
+    val settledDurationSeconds: Int = 0,
+    val settledCallType: String? = null,
+    val settledRatePerMinute: Double = 0.0,
+    val settledSpeakerRate: Double = 0.0
 )
+
+val Call.callType: CallType
+    get() = if (type.lowercase() == "video") CallType.VIDEO else CallType.AUDIO

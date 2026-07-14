@@ -69,6 +69,7 @@ fun ActiveCallScreen(
     onSetupRemoteVideo: (Int, android.widget.FrameLayout) -> Unit = { _, _ -> },
     liveCoins: Double = 0.0,
     remainingSeconds: Long = -1,
+    elapsedSeconds: Long = 0L,
     onToggleMute: (Boolean) -> Unit = {}, // Added callback
     onToggleSpeaker: (Boolean) -> Unit = {},
     onToggleVideo: (Boolean) -> Unit = {}, // Added callback
@@ -90,20 +91,13 @@ fun ActiveCallScreen(
     var isCameraEnabled by remember { mutableStateOf(true) } // Moved here for visibility
 
     // Timer State
-    var seconds by remember { mutableStateOf(0L) }
+    // Timer State
+    val seconds = elapsedSeconds
     
     // Earnings State
     val earnings by remember(liveCoins) {
         derivedStateOf { 
             liveCoins * com.rkdevstudios.voxly.util.CoinConstants.currentConfig.speakerRate
-        }
-    }
-
-    // Timer Loop
-    LaunchedEffect(Unit) {
-        while (true) {
-            delay(1000L)
-            seconds++
         }
     }
 

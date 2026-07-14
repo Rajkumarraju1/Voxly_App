@@ -59,3 +59,14 @@ object CoinConstants {
         "coins_5000" to 6500
     )
 }
+
+object CallPricing {
+    const val USER_VERIFICATION_TIMEOUT_MS = 5000L
+
+    fun getRequiredMinimum(type: com.rkdevstudios.voxly.data.model.CallType): Double {
+        return when (type) {
+            com.rkdevstudios.voxly.data.model.CallType.VIDEO -> CoinConstants.VIDEO_COINS_PER_MIN.toDouble()
+            com.rkdevstudios.voxly.data.model.CallType.AUDIO -> CoinConstants.AUDIO_COINS_PER_MIN.toDouble()
+        }
+    }
+}

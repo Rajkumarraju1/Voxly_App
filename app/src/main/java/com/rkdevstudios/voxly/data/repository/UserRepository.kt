@@ -19,6 +19,13 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.flow.first
+
+sealed class VerificationResult {
+    data class Success(val user: User) : VerificationResult()
+    object Timeout : VerificationResult()
+    data class Failure(val error: Throwable) : VerificationResult()
+}
 
 interface UserRepository {
     val currentUserFlow: StateFlow<User?>
@@ -36,6 +43,7 @@ interface UserRepository {
     suspend fun updateUserCoins(userId: String, newBalance: Double)
     fun logout()
     suspend fun deleteAccount()
+    suspend fun awaitVerifiedUser(timeoutMs: Long): VerificationResult
 }
 
 @Singleton
@@ -48,6 +56,24 @@ class UserRepositoryImpl @Inject constructor(
     private val _currentUserFlow = kotlinx.coroutines.flow.MutableStateFlow<User?>(null)
     override val currentUserFlow: kotlinx.coroutines.flow.StateFlow<User?> =
         _currentUserFlow.asStateFlow()
+
+    init {
+        auth.addAuthStateListener { firebaseAuth ->
+            val uid = firebaseAuth.currentUser?.uid
+            if (uid != null) {
+                @OptIn(kotlinx.coroutines.DelicateCoroutinesApi::class)
+                kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                    try {
+                        getUser(uid)
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
+                }
+            } else {
+                _currentUserFlow.value = null
+            }
+        }
+    }
 
     override suspend fun saveUser(user: User) {
         val userId = auth.currentUser?.uid ?: return
@@ -70,8 +96,11 @@ class UserRepositoryImpl @Inject constructor(
         val listener = firestore.collection("users").document(userId)
             .addSnapshotListener { snapshot, e ->
                 if (e == null && snapshot != null && snapshot.exists()) {
+                    val isFromCache = snapshot.metadata.isFromCache
+                    val hasPendingWrites = snapshot.metadata.hasPendingWrites()
                     val user = snapshot.toObject(User::class.java)
                     if (user != null) {
+                        android.util.Log.d("CALL_AUDIT", "getUserFlow: snapshot received. isFromCache=$isFromCache, hasPendingWrites=$hasPendingWrites, activeCallId=${user.activeCall?.callId}, activeCallStatus=${user.activeCall?.status}, isOnline=${user.isOnline}")
                         trySend(normalizePresence(user, System.currentTimeMillis()))
                     }
                 }
@@ -128,19 +157,19 @@ class UserRepositoryImpl @Inject constructor(
         // 1. Try Cache First
         var snapshot: com.google.firebase.firestore.QuerySnapshot? = null
         try {
-            if (source == com.google.firebase.firestore.Source.DEFAULT) {
+            if (source == com.google.firebase.firestore.Source.DEFAULT || source == com.google.firebase.firestore.Source.CACHE) {
                snapshot = query.limit(20).get(com.google.firebase.firestore.Source.CACHE).await()
             }
         } catch (e: Exception) {
-            // Cache miss or error, proceed to server
+            // Cache miss or error, proceed to server (only if Source.CACHE wasn't explicitly requested)
         }
 
-        // 2. If Cache is empty or failed, go to Server
-        if (snapshot == null || snapshot?.isEmpty == true) {
+        // 2. If Cache is empty or failed, go to Server (only if not Source.CACHE)
+        if (source != com.google.firebase.firestore.Source.CACHE && (snapshot == null || snapshot?.isEmpty == true)) {
              try {
                 snapshot = query.limit(20).get(com.google.firebase.firestore.Source.SERVER).await()
              } catch (e: Exception) {
-                 e.printStackTrace()
+                 android.util.Log.e("UserRepository", "getSpeakers: Failed to fetch from server (possible missing index)", e)
                  return Pair(emptyList(), null)
              }
         }
@@ -324,6 +353,46 @@ class UserRepositoryImpl @Inject constructor(
 
         // 3. Cleanup local session
         logout()
+    }
+
+    override suspend fun awaitVerifiedUser(timeoutMs: Long): VerificationResult = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        val userId = getCurrentUserId() ?: return@withContext VerificationResult.Failure(IllegalStateException("No authenticated user"))
+        
+        val flow = kotlinx.coroutines.flow.callbackFlow {
+            val listener = firestore.collection("users").document(userId)
+                .addSnapshotListener { snapshot, e ->
+                    if (e != null) {
+                        close(e)
+                        return@addSnapshotListener
+                    }
+                    if (snapshot != null && snapshot.exists()) {
+                        val isFromCache = snapshot.metadata.isFromCache
+                        val user = snapshot.toObject(User::class.java)
+                        if (user != null) {
+                            val isValid = user.id.isNotBlank() && user.displayName.isNotBlank()
+                            android.util.Log.d("CALL_AUDIT", "awaitVerifiedUser listener check: isFromCache=$isFromCache, isValidCached=$isValid, coins=${user.coins}")
+                            if (!isFromCache || isValid) {
+                                trySend(user)
+                            }
+                        }
+                    }
+                }
+            awaitClose { 
+                android.util.Log.d("CALL_AUDIT", "awaitVerifiedUser snapshot listener removed")
+                listener.remove() 
+            }
+        }
+
+        try {
+            kotlinx.coroutines.withTimeout(timeoutMs) {
+                val verifiedUser = flow.first()
+                VerificationResult.Success(verifiedUser)
+            }
+        } catch (e: kotlinx.coroutines.TimeoutCancellationException) {
+            VerificationResult.Timeout
+        } catch (e: Exception) {
+            VerificationResult.Failure(e)
+        }
     }
 }
 

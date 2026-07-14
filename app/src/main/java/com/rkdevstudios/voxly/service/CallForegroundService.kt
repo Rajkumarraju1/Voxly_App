@@ -33,6 +33,12 @@ class CallForegroundService : Service() {
     @Inject
     lateinit var auth: FirebaseAuth
 
+    @Inject
+    lateinit var userRepository: com.rkdevstudios.voxly.data.repository.UserRepository
+
+    @Inject
+    lateinit var callSessionManager: com.rkdevstudios.voxly.data.session.CallSessionManager
+
     // private var incomingCallListener: ListenerRegistration? = null // Removed
 
     override fun onBind(intent: Intent?): IBinder? {
@@ -41,11 +47,55 @@ class CallForegroundService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        com.rkdevstudios.voxly.util.CallBgAudit.log(
+            component = "CallForegroundService",
+            event = "onCreate",
+            effect = "Service created",
+            callId = currentCallId
+        )
         createNotificationChannel()
+
+        serviceScope.launch {
+            callSessionManager.sessionState.collect { state ->
+                val call = callSessionManager.currentCall.value
+                val isVideo = call?.type == "video"
+                val hasCall = state !is com.rkdevstudios.voxly.data.session.SessionState.Idle &&
+                              state !is com.rkdevstudios.voxly.data.session.SessionState.Ended
+
+                android.util.Log.d("CallForegroundService", "sessionState changed to $state | hasCall=$hasCall")
+                
+                updateForegroundServiceType(hasCall = hasCall, isVideo = isVideo)
+
+                if (state is com.rkdevstudios.voxly.data.session.SessionState.Ended) {
+                    val user = userRepository.currentUserFlow.value
+                    val isSpeaker = user?.isSpeaker == true
+                    val isOnline = user?.isOnline == true
+                    if (!isSpeaker || !isOnline) {
+                        com.rkdevstudios.voxly.util.CallBgAudit.log(
+                            component = "CallForegroundService",
+                            event = "sessionState_ended_stopping_service",
+                            effect = "userIsSpeaker=$isSpeaker | isOnline=$isOnline | Stopping service",
+                            callId = currentCallId
+                        )
+                        stopSelf()
+                    }
+                }
+            }
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val action = intent?.action
+        val callId = intent?.getStringExtra("CALL_ID")
+        if (callId != null) {
+            currentCallId = callId
+        }
+        com.rkdevstudios.voxly.util.CallBgAudit.log(
+            component = "CallForegroundService",
+            event = "onStartCommand",
+            effect = "action=$action | flags=$flags | startId=$startId | callId=$callId",
+            callId = currentCallId
+        )
         if (action == ACTION_STOP_SERVICE) {
             goOfflineAndStop()
             return START_NOT_STICKY
@@ -53,14 +103,23 @@ class CallForegroundService : Service() {
 
         startForegroundService()
 
-        startListeningForIncomingCalls()
-        startHeartbeat()
+        val user = userRepository.currentUserFlow.value
+        if (user != null && user.isSpeaker && user.isOnline) {
+            startListeningForIncomingCalls()
+            startHeartbeat()
+        }
 
         return START_STICKY
     }
 
     override fun onTaskRemoved(rootIntent: Intent?) {
         super.onTaskRemoved(rootIntent)
+        com.rkdevstudios.voxly.util.CallBgAudit.log(
+            component = "CallForegroundService",
+            event = "onTaskRemoved",
+            effect = "Task swiped away from recent apps",
+            callId = currentCallId
+        )
         goOfflineAndStop()
     }
 
@@ -135,12 +194,30 @@ class CallForegroundService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
+        com.rkdevstudios.voxly.util.CallBgAudit.log(
+            component = "CallForegroundService",
+            event = "onDestroy",
+            effect = "Service destroyed",
+            callId = currentCallId
+        )
         // incomingCallListener?.remove()
         heartbeatJob?.cancel()
         incomingCallListenerJob?.cancel()
     }
 
+
+
+    @Inject
+    lateinit var callRepository: com.rkdevstudios.voxly.data.repository.CallRepository
+
+    private var currentCallId: String? = null
+    private var incomingCallListenerJob: kotlinx.coroutines.Job? = null
+
     private fun startForegroundService() {
+        updateForegroundServiceType(hasCall = false, isVideo = false)
+    }
+
+    private fun updateForegroundServiceType(hasCall: Boolean, isVideo: Boolean) {
         val stopIntent = Intent(this, CallForegroundService::class.java).apply {
             action = ACTION_STOP_SERVICE
         }
@@ -150,42 +227,57 @@ class CallForegroundService : Service() {
 
         val notification = NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("Voxly Speaker Mode")
-            .setContentText("You are online and receiving calls")
+            .setContentText(if (hasCall) "Active call in progress" else "You are online and receiving calls")
             .setSmallIcon(android.R.drawable.stat_sys_phone_call) // Use system icon
             .setOngoing(true)
             .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Go Offline", stopPendingIntent)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .build()
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            var type = ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC // Default to dataSync or none
-            
-            val hasCamera = androidx.core.content.ContextCompat.checkSelfPermission(this, android.Manifest.permission.CAMERA) == android.content.pm.PackageManager.PERMISSION_GRANTED
-            val hasMic = androidx.core.content.ContextCompat.checkSelfPermission(this, android.Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED
-            
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                if (hasCamera) type = type or ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA
-                if (hasMic) type = type or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                var type = ServiceInfo.FOREGROUND_SERVICE_TYPE_PHONE_CALL
                 
-                // On SDK 34+ (Android 14), we MUST NOT request camera/mic if permissions missing,
-                // otherwise it throws SecurityException. We'll start with what we have.
+                if (hasCall) {
+                    val hasMic = androidx.core.content.ContextCompat.checkSelfPermission(this, android.Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                    if (hasMic) {
+                        type = type or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+                    }
+                    
+                    if (isVideo) {
+                        val hasCamera = androidx.core.content.ContextCompat.checkSelfPermission(this, android.Manifest.permission.CAMERA) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                        if (hasCamera) {
+                            type = type or ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA
+                        }
+                    }
+                }
+                
+                com.rkdevstudios.voxly.util.CallBgAudit.log(
+                    component = "CallForegroundService",
+                    event = "startForeground",
+                    effect = "id=$NOTIFICATION_ID | requestedType=$type | hasMicPermission=${androidx.core.content.ContextCompat.checkSelfPermission(this, android.Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED} | hasCameraPermission=${androidx.core.content.ContextCompat.checkSelfPermission(this, android.Manifest.permission.CAMERA) == android.content.pm.PackageManager.PERMISSION_GRANTED}",
+                    callId = currentCallId
+                )
                 startForeground(NOTIFICATION_ID, notification, type)
             } else {
-                // SDK 29-30
-                if (hasMic) type = type or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
-                startForeground(NOTIFICATION_ID, notification, type)
+                com.rkdevstudios.voxly.util.CallBgAudit.log(
+                    component = "CallForegroundService",
+                    event = "startForeground",
+                    effect = "id=$NOTIFICATION_ID | fallback Legacy",
+                    callId = currentCallId
+                )
+                startForeground(NOTIFICATION_ID, notification)
             }
-        } else {
-            // Below SDK 29
-            startForeground(NOTIFICATION_ID, notification)
+        } catch (e: Exception) {
+            com.rkdevstudios.voxly.util.CallBgAudit.log(
+                component = "CallForegroundService",
+                event = "startForeground_exception",
+                effect = "${e.message}",
+                callId = currentCallId
+            )
+            android.util.Log.e("CallForegroundService", "Failed to start foreground service", e)
         }
     }
-
-    @Inject
-    lateinit var callRepository: com.rkdevstudios.voxly.data.repository.CallRepository
-
-    private var currentCallId: String? = null
-    private var incomingCallListenerJob: kotlinx.coroutines.Job? = null
 
     private fun startListeningForIncomingCalls() {
         val currentUser = auth.currentUser ?: return
@@ -196,16 +288,23 @@ class CallForegroundService : Service() {
         incomingCallListenerJob = serviceScope.launch {
             callRepository.listenForIncomingCalls(uid).collect { call ->
                 android.util.Log.d("CallForegroundService", "Incoming call update: ${call?.id} status=${call?.status}")
-                if (call != null && call.status == "ringing") {
-                     if (currentCallId != call.id) {
-                         android.util.Log.d("CallForegroundService", "Launching IncomingCallActivity for new call: ${call.id}")
-                         currentCallId = call.id
-                         launchIncomingCallScreen(call)
-                     } else {
-                         android.util.Log.d("CallForegroundService", "Ignoring duplicate launch for call: ${call.id}")
-                     }
+                if (call != null) {
+                    if (call.status == "ringing") {
+                         if (currentCallId != call.id) {
+                             android.util.Log.d("CallForegroundService", "Launching IncomingCallActivity for new call: ${call.id}")
+                             currentCallId = call.id
+                             launchIncomingCallScreen(call)
+                         }
+                    } else if (call.status == "ended" || call.status == "completed" || call.status == "rejected") {
+                         currentCallId = null
+                    }
+                    
+                    // Dynamic promotion: Only request Camera/Mic foreground type during active call
+                    val hasActiveCall = call.status == "ringing" || call.status == "active"
+                    updateForegroundServiceType(hasCall = hasActiveCall, isVideo = call.type == "video")
                 } else {
                     currentCallId = null // Reset when no ringing call
+                    updateForegroundServiceType(hasCall = false, isVideo = false)
                 }
             }
         }
