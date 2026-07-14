@@ -115,6 +115,7 @@ dependencies {
     // Firebase
     implementation(platform("com.google.firebase:firebase-bom:32.7.0"))
     implementation("com.google.firebase:firebase-auth")
+    implementation("com.google.android.recaptcha:recaptcha:18.5.1")
     implementation("com.google.firebase:firebase-firestore")
     implementation("com.google.firebase:firebase-messaging")
     implementation("com.google.firebase:firebase-functions")
