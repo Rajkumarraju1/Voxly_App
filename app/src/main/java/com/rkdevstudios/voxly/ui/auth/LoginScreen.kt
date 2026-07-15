@@ -117,7 +117,7 @@ fun LoginScreen(
             Button(
                 onClick = { viewModel.verifyCode() },
                 modifier = Modifier.fillMaxWidth(),
-                enabled = uiState.otp.isNotEmpty() && !uiState.isLoading
+                enabled = uiState.otp.length == 6 && !uiState.isLoading
             ) {
                 Text("Verify & Continue")
             }

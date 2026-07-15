@@ -52,7 +52,9 @@ class LoginViewModel @Inject constructor(
     }
 
     fun updateOtp(code: String) {
-        _uiState.update { it.copy(otp = code, error = null) }
+        val digits = code.filter { it.isDigit() }
+        val truncated = if (digits.length > 6) digits.substring(0, 6) else digits
+        _uiState.update { it.copy(otp = truncated, error = null) }
     }
 
     fun cancelVerification() {

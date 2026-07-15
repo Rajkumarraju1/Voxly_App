@@ -8,6 +8,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.ExitToApp
@@ -500,8 +502,12 @@ fun AccountSettingsScreen(
                     )
                     OutlinedTextField(
                         value = otpCode,
-                        onValueChange = { if (it.length <= 6) otpCode = it },
+                        onValueChange = { input ->
+                            val digits = input.filter { it.isDigit() }
+                            otpCode = if (digits.length > 6) digits.substring(0, 6) else digits
+                        },
                         label = { Text("6-digit Code") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         colors = OutlinedTextFieldDefaults.colors(
                             focusedTextColor = Color.White,
                             unfocusedTextColor = Color.White
