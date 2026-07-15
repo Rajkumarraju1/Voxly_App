@@ -85,13 +85,11 @@ fun LoginScreen(
             OutlinedTextField(
                 value = uiState.phoneNumber,
                 onValueChange = { 
-                    // Allow up to 15 chars for international numbers
-                    if (it.length <= 15) viewModel.updatePhoneNumber(it) 
+                    viewModel.updatePhoneNumber(it) 
                 },
                 label = { Text("Phone Number") },
                 prefix = { 
-                     // Only show prefix if user hasn't typed '+' (which hints usually include)
-                     if (!uiState.phoneNumber.startsWith("+")) Text("+91 ") 
+                     Text("+91 ") 
                 },
                 placeholder = { Text("00000 00000") },
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
@@ -102,7 +100,7 @@ fun LoginScreen(
             Button(
                 onClick = { activity?.let { viewModel.sendVerificationCode(it) } },
                 modifier = Modifier.fillMaxWidth(),
-                enabled = uiState.phoneNumber.isNotEmpty() && !uiState.isLoading
+                enabled = uiState.phoneNumber.length == 10 && !uiState.isLoading
             ) {
                 Text("Get OTP")
             }

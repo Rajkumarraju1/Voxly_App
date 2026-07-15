@@ -386,9 +386,15 @@ fun ListenerFormScreen(
                         // Outlined Text Field (Styled borderless to match mockup input container)
                         OutlinedTextField(
                             value = phoneNumber,
-                            onValueChange = { phoneNumber = it },
+                            onValueChange = { input ->
+                                var digits = input.filter { it.isDigit() }
+                                if (digits.startsWith("91") && digits.length > 10) {
+                                    digits = digits.substring(2)
+                                }
+                                phoneNumber = if (digits.length > 10) digits.substring(0, 10) else digits
+                            },
                             placeholder = { Text("Enter your phone number", color = Color.Gray, fontSize = 14.sp) },
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                             singleLine = true,
                             colors = OutlinedTextFieldDefaults.colors(
                                 focusedTextColor = Color.White,
@@ -482,7 +488,7 @@ fun ListenerFormScreen(
             Spacer(modifier = Modifier.weight(1f))
 
             // 6. Action Button Continue
-            val buttonEnabled = gender.isNotEmpty() && phoneNumber.isNotEmpty() && selectedLanguage != null
+            val buttonEnabled = gender.isNotEmpty() && phoneNumber.length == 10 && selectedLanguage != null
             Box(
                 modifier = Modifier
                     .fillMaxWidth()

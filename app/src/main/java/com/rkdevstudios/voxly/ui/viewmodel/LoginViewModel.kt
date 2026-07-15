@@ -42,7 +42,13 @@ class LoginViewModel @Inject constructor(
 
     fun updatePhoneNumber(number: String) {
         if (_uiState.value.isLoading || _uiState.value.isCodeSent) return
-        _uiState.update { it.copy(phoneNumber = number, error = null) }
+        var digits = number.filter { it.isDigit() }
+        // If it starts with '91' and is longer than 10 digits (e.g. from picker +91...), strip '91' country code
+        if (digits.startsWith("91") && digits.length > 10) {
+            digits = digits.substring(2)
+        }
+        val truncated = if (digits.length > 10) digits.substring(0, 10) else digits
+        _uiState.update { it.copy(phoneNumber = truncated, error = null) }
     }
 
     fun updateOtp(code: String) {
@@ -58,18 +64,9 @@ class LoginViewModel @Inject constructor(
     fun sendVerificationCode(activity: Activity) {
         if (_uiState.value.isLoading) return
         val rawNumber = _uiState.value.phoneNumber
-        if (rawNumber.isEmpty()) return
+        if (rawNumber.length != 10) return
 
-        // Format: If user typed 10 digits (e.g. 9876543210), make it +919876543210.
-        // If they typed +91..., leave it.
-        val formattedNumber = if (rawNumber.startsWith("+")) {
-            rawNumber
-        } else if (rawNumber.length == 10) {
-            "+91$rawNumber" // Default to +91 for now, can be dynamic later
-        } else {
-            // Fallback: If unsure, try adding +, or let Firebase allow it if locale matches
-            if (!rawNumber.startsWith("+")) "+$rawNumber" else rawNumber
-        }
+        val formattedNumber = "+91$rawNumber"
 
         _uiState.update { it.copy(isLoading = true, error = null) }
 
