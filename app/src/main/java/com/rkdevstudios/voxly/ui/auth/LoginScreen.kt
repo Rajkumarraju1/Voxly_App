@@ -123,6 +123,14 @@ fun LoginScreen(
             ) {
                 Text("Verify & Continue")
             }
+            Spacer(modifier = Modifier.height(8.dp))
+            TextButton(
+                onClick = { viewModel.cancelVerification() },
+                modifier = Modifier.fillMaxWidth(),
+                enabled = !uiState.isLoading
+            ) {
+                Text("Change Phone Number")
+            }
             
             Spacer(modifier = Modifier.height(24.dp))
             

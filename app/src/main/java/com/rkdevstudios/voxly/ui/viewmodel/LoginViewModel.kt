@@ -41,6 +41,7 @@ class LoginViewModel @Inject constructor(
     private var resendToken: PhoneAuthProvider.ForceResendingToken? = null
 
     fun updatePhoneNumber(number: String) {
+        if (_uiState.value.isLoading || _uiState.value.isCodeSent) return
         _uiState.update { it.copy(phoneNumber = number, error = null) }
     }
 
@@ -48,7 +49,14 @@ class LoginViewModel @Inject constructor(
         _uiState.update { it.copy(otp = code, error = null) }
     }
 
+    fun cancelVerification() {
+        verificationId = null
+        resendToken = null
+        _uiState.update { it.copy(isLoading = false, isCodeSent = false, otp = "", error = null) }
+    }
+
     fun sendVerificationCode(activity: Activity) {
+        if (_uiState.value.isLoading) return
         val rawNumber = _uiState.value.phoneNumber
         if (rawNumber.isEmpty()) return
 
